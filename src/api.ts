@@ -91,6 +91,7 @@ export const api = {
   createStorage: (path: string, current?: string) => request<VaultStatus>('POST', '/storage/create', { path, current }),
   moveStorage: (path: string, current?: string) => request<VaultStatus>('POST', '/storage/move', { path, current }),
   defaultStorage: (current?: string) => request<VaultStatus>('POST', '/storage/default', { current }),
+  wipeStorage: (current?: string) => request<VaultStatus>('POST', '/storage/wipe', { current }),
   retryStorage: () => request<VaultStatus>('POST', '/storage/retry'),
   browseStorage: (mode: 'open' | 'save') => request<{ path: string | null }>('POST', '/storage/browse', { mode }),
   storageTemplate: () => request<{ filename: string; data: string }>('GET', '/storage/template'),

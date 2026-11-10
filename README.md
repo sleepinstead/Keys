@@ -30,6 +30,7 @@ Everything Keys stores is in **one SQLite file**, and you choose where it lives.
 - **Connect a database:** open a Keys file you already have. Keys locks and switches to it.
 - **Move this database:** copy everything to a new location and keep working from there. The old file is left untouched.
 - **New empty database:** download an empty database (all tables, no data) to place anywhere and connect later, or on macOS create one directly in a folder you pick.
+- **Erase this database:** permanently deletes everything in the open file (it needs your password or PIN) and returns to setup.
 - **Built-in location:** switch back to `data/database.sqlite`.
 
 On macOS each option has a **Browse** button that opens the normal Finder dialog; anywhere else, paste the file's full path (`~/…` and `file://` links work). Every change of file needs the current database's master password or PIN, with the usual lockout after repeated mistakes.

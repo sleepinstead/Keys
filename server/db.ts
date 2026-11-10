@@ -124,6 +124,14 @@ export class Store {
     }
   }
 
+  /** Removes every item, category, setting and key, then compacts the file so nothing lingers in free pages. */
+  wipe(): void {
+    this.transaction(() => {
+      for (const table of ['entries', 'categories', 'meta']) this.db.exec(`DELETE FROM ${table}`);
+    });
+    this.db.exec('VACUUM');
+  }
+
   /** Writes a compact, consistent copy of the whole database to `file` (which must not exist). */
   copyTo(file: string): void {
     this.db.prepare('VACUUM INTO ?').run(file);

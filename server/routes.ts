@@ -180,6 +180,14 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
     res.json(status(req));
   });
 
+  /** Erases this database in place. The file stays, empty, ready for a fresh setup. */
+  api.post('/storage/wipe', json, async (req, res) => {
+    keyFor(req);
+    await requireCurrent(req);
+    vault.store.wipe();
+    switched(req, res);
+  });
+
   /** An empty Keys database (all tables, no data) to save anywhere and connect later. */
   api.get('/storage/template', (_req, res) => {
     res.json({ filename: 'Keys.sqlite', data: Storage.template().toString('base64') });
