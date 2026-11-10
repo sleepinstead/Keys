@@ -7,7 +7,7 @@ import { applyAppearance } from '../App.tsx';
 import { SettingsProvider, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
 import { useSiteIcons } from '../siteIcons.ts';
-import type { Appearance, AuditReport, Category, CategoryColor, Entry, EntrySummary, EntryType, Settings, VaultStatus } from '../../shared/types.ts';
+import type { Appearance, AuditReport, Category, CategoryColor, ChecklistStep, Entry, EntrySummary, EntryType, Settings, VaultStatus } from '../../shared/types.ts';
 import { hostname, isTypingTarget, modKey, TYPE_LABELS } from '../util.ts';
 import { AuditView } from './AuditView.tsx';
 import { CommandPalette } from './CommandPalette.tsx';
@@ -18,6 +18,8 @@ import type { EditorState } from './EntryEditor.tsx';
 import { EntryList } from './EntryList.tsx';
 import type { Sort } from './EntryList.tsx';
 import { GeneratorView } from './Generator.tsx';
+import { Onboarding } from './Onboarding.tsx';
+import { GettingStarted } from './GettingStarted.tsx';
 import { SettingsView } from './SettingsView.tsx';
 import { Sidebar, viewKey } from './Sidebar.tsx';
 import type { Filter, View } from './Sidebar.tsx';
@@ -105,6 +107,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
   const [categories, setCategories] = useState<Category[]>([]);
   const [view, setView] = useState<View>({ kind: 'items', filter: { kind: 'all' } });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState(false);
   const [detailVersion, setDetailVersion] = useState(0);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [query, setQuery] = useState('');
@@ -186,11 +189,22 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           ? TYPE_LABELS[filter.type].many
           : (categories.find((c) => c.id === filter.categoryId)?.name ?? 'Category');
 
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const markDone = useCallback(
+    (step: ChecklistStep) => {
+      const state = settingsRef.current.checklist;
+      if (state && !state.done.includes(step)) void updateSettings({ checklist: { ...state, done: [...state.done, step] } }).catch(() => {});
+    },
+    [updateSettings],
+  );
+
   const selectView = useCallback((v: View) => {
+    if (v.kind === 'generator' || v.kind === 'audit') markDone(v.kind);
     setView(v);
     setNavOpen(false);
     if (v.kind === 'items') setSelectedId(null);
-  }, []);
+  }, [markDone]);
 
   const openItem = useCallback((id: string) => {
     setView((v) => (v.kind === 'items' ? v : { kind: 'items', filter: { kind: 'all' } }));
@@ -274,7 +288,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         onLock();
         return;
       }
-      if (mod || e.altKey || isTypingTarget(e.target) || document.querySelector('.dialog-layer, .palette-layer, .menu')) return;
+      if (mod || e.altKey || isTypingTarget(e.target) || document.querySelector('.dialog-layer, .palette-layer, .menu, .ob-replay')) return;
       if (e.key === '/') {
         e.preventDefault();
         setView((v) => (v.kind === 'items' ? v : { kind: 'items', filter: { kind: 'all' } }));
@@ -387,6 +401,11 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                 {view.kind === 'settings' && (
                   <SettingsView
                     categories={categories}
+                    onViewOnboarding={() => setReplaying(true)}
+                    onShowGettingStarted={() => {
+                      selectView({ kind: 'items', filter: { kind: 'all' } });
+                      void updateSettings({ checklist: { tourSeen: false, done: settings.checklist?.done ?? [] } }).catch(() => {});
+                    }}
                     onCategoriesChanged={async () => {
                       await loadCategories();
                       await loadEntries();
@@ -403,6 +422,19 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           </AnimatePresence>
         </main>
 
+        <GettingStarted
+          hasItems={(entries?.length ?? 0) > 0}
+          onAdd={() => create(defaultType)}
+          onGo={(step) => selectView({ kind: step === 'backup' ? 'settings' : step })}
+          watch={view.kind}
+        />
+        <AnimatePresence>
+          {replaying && (
+            <motion.div key="onboarding" className="ob-replay-layer" {...fade}>
+              <Onboarding status={status} onClose={() => setReplaying(false)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
         <EntryEditorDialog state={editor} categories={categories} onSaved={onSaved} onClose={() => setEditor(null)} />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} entries={entries ?? []} actions={paletteActions} />
       </div>

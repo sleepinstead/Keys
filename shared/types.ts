@@ -124,7 +124,12 @@ export interface Settings {
   hideIcons: Record<EntryType, boolean>;
   /** Whether categories are enabled in the vault. */
   categoriesEnabled: boolean;
+  /** First-run welcome inside the app. Null once it's finished, and for vaults made before it existed. */
+  checklist: { tourSeen: boolean; done: ChecklistStep[] } | null;
 }
+
+export const CHECKLIST_STEPS = ['generator', 'audit', 'backup'] as const;
+export type ChecklistStep = (typeof CHECKLIST_STEPS)[number];
 
 export type Appearance = 'system' | 'light' | 'dark';
 
@@ -138,6 +143,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appearance: 'system',
   hideIcons: { login: false, note: true, apiKey: true, recovery: true },
   categoriesEnabled: true,
+  checklist: null,
 };
 
 /** Where the SQLite database lives. Not secret: the lock screen shows it. */

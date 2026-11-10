@@ -4,7 +4,7 @@ import { FileKey2, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Plus, Search, 
 import { useSettings } from '../context.tsx';
 import type { Category, CategoryColor, EntrySummary, EntryType } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
-import { AppMark, IconButton, Kbd, ThemeToggle, Tooltip, FolderIcon } from './ui.tsx';
+import { AppMark, IconButton, Kbd, Tooltip, FolderIcon } from './ui.tsx';
 import { ColorMenu } from './ColorMenu.tsx';
 
 export type Filter =
@@ -87,7 +87,7 @@ export function Sidebar({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState<CategoryColor | null>(null);
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
   const key = viewKey(view);
   const items = (filter: Filter): View => ({ kind: 'items', filter });
   const go = (v: View) => () => onView(v);
@@ -205,7 +205,6 @@ export function Sidebar({
 
       <div className="sidebar-foot">
         <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} />
-        <ThemeToggle value={settings.appearance} onChange={(v) => void updateSettings({ appearance: v }).catch(() => {})} />
       </div>
     </nav>
   );
@@ -233,8 +232,9 @@ function LockButton({ onLock, expiresAt, idleMs }: { onLock: () => void; expires
       }
       shortcut={`${modKey}⇧L`}
     >
-      <button type="button" className={`icon-btn icon-btn-outline lock-btn${soon ? ' is-soon' : ''}`} onClick={onLock} aria-label={`Lock now. ${note}`}>
+      <button type="button" className={`btn btn-outline lock-btn${soon ? ' is-soon' : ''}`} onClick={onLock} aria-label={`Lock now. ${note}`}>
         <Lock size={16} />
+        Lock
       </button>
     </Tooltip>
   );

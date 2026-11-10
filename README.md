@@ -47,6 +47,7 @@ To back up, use an encrypted export (below) or copy the database file while Keys
 
 ## What it does
 
+- **First run:** a short landing page and one question per screen to create the vault, then a one-time tour and a getting-started checklist you can dismiss.
 - **Item types:** logins, secure notes, API keys and recovery codes, each with categories, favorites and extra (optionally hidden) fields.
 - **Password history:** changing a password keeps the previous 20 in that item.
 - **Generator:** random passwords (8–128 characters, character sets, look-alike exclusion), passphrases from the EFF 7,776-word list (3–12 words, separator, capitals, a digit), and PINs (4–12 digits, never obvious ones like 1234 or 1212). All with unbiased Web Crypto randomness. The setup screen can suggest a passphrase for your master password.
