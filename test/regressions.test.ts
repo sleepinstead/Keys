@@ -113,3 +113,41 @@ test('a new vault starts the welcome; older settings and bad values do not', asy
   store.setMeta('settings', '{}');
   assert.equal(vault.getSettings().checklist, null, 'vaults from before onboarding stay quiet');
 });
+
+test('erasing needs a session and the password, then leaves an empty database', async () => {
+  const ctx = createApp({ dbFile: ':memory:', allowedOrigins: [] });
+  const server = await new Promise<ReturnType<typeof ctx.app.listen>>((resolve) => {
+    const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  let token = '';
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-keys-request': '1', 'x-keys-session': token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const parsed = (await res.json()) as any;
+    if (parsed.sessionToken) token = parsed.sessionToken;
+    return { status: res.status, body: parsed };
+  };
+  try {
+    await call('POST', '/setup', { password: MASTER });
+    await call('POST', '/entries', { type: 'login', title: 'x', password: 'p' });
+    const session = token;
+    token = 'wrong';
+    assert.equal((await call('POST', '/storage/wipe', { current: MASTER })).status, 401, 'no session');
+    token = session;
+    assert.equal((await call('POST', '/storage/wipe', { current: 'nope' })).status, 401, 'wrong password');
+    assert.equal((await call('GET', '/entries')).body.length, 1, 'nothing erased yet');
+    const done = await call('POST', '/storage/wipe', { current: MASTER });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.initialized, false);
+    assert.equal(done.body.unlocked, false);
+    assert.equal((await call('GET', '/entries')).status, 401);
+    assert.equal(ctx.store.all('entries').length + ctx.store.all('categories').length, 0);
+  } finally {
+    ctx.sessions.dispose();
+    server.close();
+    ctx.store.close();
+  }
+});

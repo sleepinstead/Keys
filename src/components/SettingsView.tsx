@@ -352,6 +352,15 @@ function StorageSection({ storage, credential, onMoved }: { storage: StorageInfo
             </Button>
           </div>
         )}
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Erase this database</div>
+            <div className="setting-desc">Permanently delete everything in this file.</div>
+          </div>
+          <Button size="sm" variant="danger" onClick={() => setMode('wipe')}>
+            Erase
+          </Button>
+        </div>
       </div>
       <StorageDialog
         mode={mode}

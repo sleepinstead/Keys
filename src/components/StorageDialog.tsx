@@ -6,7 +6,7 @@ import type { Credential, StorageInfo, VaultStatus } from '../../shared/types.ts
 import { CREDENTIAL_NAMES } from './credential.tsx';
 import { Button, Dialog, OtpInput } from './ui.tsx';
 
-export type StorageMode = 'connect' | 'create' | 'move' | 'default';
+export type StorageMode = 'connect' | 'create' | 'move' | 'default' | 'wipe';
 
 const COPY: Record<StorageMode, { title: string; description: string; action: string; placeholder: string }> = {
   connect: {
@@ -25,6 +25,12 @@ const COPY: Record<StorageMode, { title: string; description: string; action: st
     title: 'Use the built-in database',
     description: 'Keys will lock and open the file inside its own folder. Your current file isn’t changed or deleted.',
     action: 'Switch',
+    placeholder: '',
+  },
+  wipe: {
+    title: 'Erase this database?',
+    description: 'Every item, category and setting in this file is permanently deleted, and Keys returns to setup. This can’t be undone.',
+    action: 'Erase everything',
     placeholder: '',
   },
   move: {
@@ -56,6 +62,7 @@ export function StorageDialog({
   const [browsing, setBrowsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const copy = mode ? COPY[mode] : COPY.connect;
+  const needsPath = mode !== 'default' && mode !== 'wipe';
 
   useEffect(() => {
     if (mode) {
@@ -85,7 +92,9 @@ export function StorageDialog({
     try {
       const secret = credential ? current : undefined;
       onDone(
-        mode === 'default'
+        mode === 'wipe'
+          ? await api.wipeStorage(secret)
+          : mode === 'default'
           ? await api.defaultStorage(secret)
           : await (mode === 'create' ? api.createStorage : mode === 'move' ? api.moveStorage : api.connectStorage)(path, secret),
       );
@@ -100,7 +109,7 @@ export function StorageDialog({
     <Dialog open={mode !== null} onClose={onClose} size="sm" title={copy.title} description={copy.description} bare>
       <form className="dialog-form" onSubmit={submit}>
         <div className="dialog-body stack storage-dialog">
-          {mode !== 'default' && (
+          {needsPath && (
           <div className="field">
             <label htmlFor="storage-path" className="field-label">
               {mode === 'connect' ? 'Database file' : 'Save as'}
@@ -143,7 +152,7 @@ export function StorageDialog({
                   autoComplete="current-password"
                   value={current}
                   onChange={(e) => setCurrent(e.target.value)}
-                  {...(mode === 'default' ? { 'data-autofocus': true } : {})}
+                  {...(!needsPath ? { 'data-autofocus': true } : {})}
                 />
               )}
             </div>
@@ -160,9 +169,9 @@ export function StorageDialog({
           </Button>
           <Button
             type="submit"
-            variant="primary"
+            variant={mode === 'wipe' ? 'danger' : 'primary'}
             loading={busy}
-            disabled={(mode !== 'default' && !path.trim()) || (credential !== null && (credential.type === 'pin' ? current.length !== credential.length : !current))}
+            disabled={(needsPath && !path.trim()) || (credential !== null && (credential.type === 'pin' ? current.length !== credential.length : !current))}
           >
             {copy.action}
           </Button>
