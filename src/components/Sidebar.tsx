@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { FileKey2, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Trash2 } from 'lucide-react';
+import { FileKey2, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2 } from 'lucide-react';
 import { useSettings } from '../context.tsx';
 import type { Category, CategoryColor, EntrySummary, EntryType } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
@@ -148,7 +148,7 @@ export function Sidebar({
           <NavItem active={key === 'generator'} onClick={go({ kind: 'generator' })} icon={<Sparkles size={16} />} label="Generator" />
           <NavItem active={key === 'audit'} onClick={go({ kind: 'audit' })} icon={<ShieldCheck size={16} />} label="Security audit" count={auditCount ?? undefined} tone="red" />
           <NavItem active={key === 'trash'} onClick={go({ kind: 'trash' })} icon={<Trash2 size={16} />} label="Recently deleted" count={trashCount || undefined} />
-          <NavItem active={key === 'settings'} onClick={go({ kind: 'settings' })} icon={<Settings2 size={16} />} label="Settings" />
+          <NavItem active={key === 'settings'} onClick={go({ kind: 'settings' })} icon={<SlidersHorizontal size={16} />} label="Settings" />
         </ul>
         </div>
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CornerDownLeft, Lock, Search, Settings2, ShieldCheck, Sparkles } from 'lucide-react';
+import { CornerDownLeft, Lock, Search, SlidersHorizontal, ShieldCheck, Sparkles } from 'lucide-react';
 import { dialog, fade } from '../motion.ts';
 import type { EntrySummary, EntryType } from '../../shared/types.ts';
 import { hostname, TYPE_LABELS } from '../util.ts';
@@ -73,7 +73,7 @@ export function CommandPalette({
       })),
       { id: 'gen', group: 'Actions', label: 'Generate a password', icon: <Sparkles size={16} />, run: actions.generator },
       { id: 'audit', group: 'Actions', label: 'Run security audit', icon: <ShieldCheck size={16} />, run: actions.audit },
-      { id: 'settings', group: 'Actions', label: 'Open settings', icon: <Settings2 size={16} />, run: actions.settings },
+      { id: 'settings', group: 'Actions', label: 'Open settings', icon: <SlidersHorizontal size={16} />, run: actions.settings },
       { id: 'lock', group: 'Actions', label: 'Lock now', icon: <Lock size={16} />, run: actions.lock },
     ];
     const items: Result[] = entries
