@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Archive, Check, Compass, Eye, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Archive, Check, Eye, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
 import { collapse, fade } from '../motion.ts';
@@ -83,14 +83,10 @@ function SelectRow({
 
 export function SettingsView({
   categories,
-  onViewOnboarding,
-  onShowGettingStarted,
   onCategoriesChanged,
   onImported,
 }: {
   categories: Category[];
-  onViewOnboarding: () => void;
-  onShowGettingStarted: () => void;
   onCategoriesChanged: () => Promise<void>;
   onImported: () => Promise<void>;
 }) {
@@ -219,28 +215,6 @@ export function SettingsView({
 
       <BackupSection credential={credential} onImported={onImported} />
       <CategoriesSection categories={categories} onChanged={onCategoriesChanged} />
-      <Section title="Help" icon={<Compass size={17} />} size="narrow">
-        <div className="group">
-          <div className="setting-row">
-            <div>
-              <div className="setting-label">Onboarding</div>
-              <div className="setting-desc">Replay the welcome screens. Nothing changes.</div>
-            </div>
-            <Button variant="outline" onClick={onViewOnboarding}>
-              View
-            </Button>
-          </div>
-          <div className="setting-row">
-            <div>
-              <div className="setting-label">Getting started</div>
-              <div className="setting-desc">Show the tips and checklist again.</div>
-            </div>
-            <Button variant="outline" onClick={onShowGettingStarted}>
-              Show
-            </Button>
-          </div>
-        </div>
-      </Section>
       </div>
     </div>
   );
@@ -1051,7 +1025,6 @@ function ExportForm({ credential, onDone }: { credential: Credential; onDone: ()
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
-  const { settings, updateSettings } = useSettings();
   const short = isShortCredential(credential);
 
   async function submit(e: FormEvent) {
@@ -1071,8 +1044,6 @@ function ExportForm({ credential, onDone }: { credential: Credential; onDone: ()
       const file = await api.exportVault(format, master, format === 'encrypted' ? exportPassword || undefined : undefined);
       downloadFile(file.filename, file.mime, file.content);
       toast(`Exported ${file.filename}`);
-      const state = settings.checklist;
-      if (state && !state.done.includes('backup')) void updateSettings({ checklist: { ...state, done: [...state.done, 'backup'] } }).catch(() => {});
       onDone();
     } catch (err) {
       setError(errorMessage(err));

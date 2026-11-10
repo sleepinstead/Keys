@@ -1,4 +1,4 @@
-import { CATEGORY_COLORS, CHECKLIST_STEPS, ENTRY_TYPES, DEFAULT_SETTINGS } from '../shared/types.ts';
+import { CATEGORY_COLORS, ENTRY_TYPES, DEFAULT_SETTINGS } from '../shared/types.ts';
 import {
   DEFAULT_GENERATOR_OPTIONS,
   MAX_LENGTH,
@@ -10,7 +10,7 @@ import {
   SEPARATORS,
 } from '../shared/generator.ts';
 import type { GeneratorMode, GeneratorOptions } from '../shared/generator.ts';
-import type { ChecklistStep, CustomField, EntryInput, EntryType, Settings } from '../shared/types.ts';
+import type { CustomField, EntryInput, EntryType, Settings } from '../shared/types.ts';
 import { randomId } from './crypto.ts';
 
 export class HttpError extends Error {
@@ -149,13 +149,6 @@ function hideIcons(o: Record<string, unknown>, current: Settings['hideIcons']): 
   return next;
 }
 
-function checklist(raw: unknown): Settings['checklist'] {
-  if (!raw || typeof raw !== 'object') return null;
-  const o = raw as Record<string, unknown>;
-  const done = Array.isArray(o.done) ? CHECKLIST_STEPS.filter((s: ChecklistStep) => (o.done as unknown[]).includes(s)) : [];
-  return { tourSeen: Boolean(o.tourSeen), done };
-}
-
 export function sanitizeSettings(raw: unknown, current: Settings = DEFAULT_SETTINGS): Settings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const has = (k: keyof Settings) => Object.hasOwn(o, k);
@@ -175,7 +168,6 @@ export function sanitizeSettings(raw: unknown, current: Settings = DEFAULT_SETTI
       : current.appearance,
     hideIcons: hideIcons(o, current.hideIcons),
     categoriesEnabled: has('categoriesEnabled') ? Boolean(o.categoriesEnabled) : (current.categoriesEnabled ?? true),
-    checklist: has('checklist') ? checklist(o.checklist) : (current.checklist ?? null),
   };
 }
 

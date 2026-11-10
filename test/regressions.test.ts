@@ -104,16 +104,6 @@ test('an item deleted during a breach check does not cancel the other results', 
   }
 });
 
-test('a new vault starts the welcome; older settings and bad values do not', async () => {
-  const { store, vault } = fresh();
-  await vault.setup(MASTER);
-  assert.deepEqual(vault.getSettings().checklist, { tourSeen: false, done: [] });
-  assert.deepEqual(vault.updateSettings({ checklist: { tourSeen: true, done: ['audit', 'nope', 'audit'] } }).checklist, { tourSeen: true, done: ['audit'] });
-  assert.equal(vault.updateSettings({ checklist: null }).checklist, null);
-  store.setMeta('settings', '{}');
-  assert.equal(vault.getSettings().checklist, null, 'vaults from before onboarding stay quiet');
-});
-
 test('erasing needs a session and the password, then leaves an empty database', async () => {
   const ctx = createApp({ dbFile: ':memory:', allowedOrigins: [] });
   const server = await new Promise<ReturnType<typeof ctx.app.listen>>((resolve) => {

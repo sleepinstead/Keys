@@ -5,7 +5,6 @@ import { clearClipboardNow } from './clipboard.ts';
 import { ConfirmProvider, ToastProvider } from './context.tsx';
 import type { Appearance, VaultStatus } from '../shared/types.ts';
 import { LockScreen } from './components/LockScreen.tsx';
-import { Onboarding } from './components/Onboarding.tsx';
 import { StorageUnavailable } from './components/StorageDialog.tsx';
 import { VaultShell } from './components/VaultShell.tsx';
 import { ConnectionError, ErrorBoundary } from './components/ErrorScreen.tsx';
@@ -98,7 +97,7 @@ export function App() {
         exit={fade.exit}
         transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
       >
-        {status.initialized ? <LockScreen status={status} onUnlocked={setStatus} /> : <Onboarding status={status} onUnlocked={setStatus} />}
+        <LockScreen status={status} onUnlocked={setStatus} />
       </motion.div>
     );
   } else {

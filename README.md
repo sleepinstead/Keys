@@ -48,7 +48,6 @@ To back up, use an encrypted export (below) or copy the database file while Keys
 
 ## What it does
 
-- **First run:** a short landing page and one question per screen to create the vault, then a one-time tour and a getting-started checklist you can dismiss.
 - **Item types:** logins, secure notes, API keys and recovery codes, each with categories, favorites and extra (optionally hidden) fields.
 - **Recently deleted:** deleting an item moves it to a bin you can restore from. Deleting from the bin for good needs your password or PIN.
 - **Password history:** changing a password keeps the previous 20 in that item.

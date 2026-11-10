@@ -99,7 +99,7 @@ export class Vault {
         this.store.setMeta('kdf', JSON.stringify(kdf));
         this.store.setMeta('wrapped_key', wrapped.toString('base64'));
         this.store.setMeta('credential', JSON.stringify(credential));
-        this.store.setMeta('settings', JSON.stringify({ ...DEFAULT_SETTINGS, checklist: { tourSeen: false, done: [] } }));
+        this.store.setMeta('settings', JSON.stringify(DEFAULT_SETTINGS));
         this.store.setMeta('created_at', String(now));
         DEFAULT_CATEGORIES.forEach((name, i) => this.insertCategory(dek, name, now + i));
       });

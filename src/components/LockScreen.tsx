@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { AnimatePresence, motion, useAnimate } from 'motion/react';
-import { Check, Database, Eye, EyeOff, Grid3x3, KeyRound, Lock, ShieldCheck, WholeWord } from 'lucide-react';
+import { Check, Database, Eye, EyeOff, Grid3x3, KeyRound, Lock, ShieldCheck, Sparkles, WholeWord } from 'lucide-react';
 import { api, errorMessage, LOCK_EVENT } from '../api.ts';
-import { dialog, fade } from '../motion.ts';
-import { encodePattern } from '../../shared/credential.ts';
+import { collapse, dialog, fade } from '../motion.ts';
+import { encodePattern, passphraseProblem, passphraseWords } from '../../shared/credential.ts';
+import { generatePassword, isWeakPin } from '../../shared/generator.ts';
 import type { VaultStatus } from '../../shared/types.ts';
-import { CREDENTIAL_NAMES, PatternInput } from './credential.tsx';
+import { CREDENTIAL_NAMES, CredentialPicker, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
+import type { CredentialChoice } from './credential.tsx';
 import { Dial } from './Dial.tsx';
 import { StorageDialog } from './StorageDialog.tsx';
 import type { StorageMode } from './StorageDialog.tsx';
 import type { DialState } from './Dial.tsx';
-import { Button, IconButton, OtpInput } from './ui.tsx';
+import { Button, IconButton, OtpInput, StrengthMeter, useStrength } from './ui.tsx';
 
 export { PinWarning } from './credential.tsx';
 
@@ -78,15 +80,21 @@ function Backdrop() {
 }
 
 export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: VaultStatus) => void }) {
+  const creating = !status.initialized;
   const vaultKind = status.credential.type;
   const pinVault = status.credential.type === 'pin' ? status.credential.length : null;
+  const [choice, setChoice] = useState<CredentialChoice>({ type: 'password', pinLength: 6 });
   const [storageMode, setStorageMode] = useState<StorageMode | null>(null);
   const [quick, setQuick] = useState(status.pin);
-  const [method, setMethod] = useState<'pin' | 'primary'>((vaultKind === 'password' || vaultKind === 'passphrase') && status.pin?.available ? 'pin' : 'primary');
+  const [method, setMethod] = useState<'pin' | 'primary'>(!creating && (vaultKind === 'password' || vaultKind === 'passphrase') && status.pin?.available ? 'pin' : 'primary');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [digits, setDigits] = useState('');
+  const [digitsAgain, setDigitsAgain] = useState('');
   const [pattern, setPattern] = useState<number[]>([]);
+  const [newPattern, setNewPattern] = useState<string | null>(null);
   const [show, setShow] = useState(false);
+  const [suggested, setSuggested] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [declined, setDeclined] = useState(false);
@@ -99,9 +107,10 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
   const [card, animateCard] = useAnimate();
 
   /** Which input this screen shows. */
-  const kind = method === 'pin' && quick?.available ? 'pin' : vaultKind;
+  const kind = creating ? choice.type : method === 'pin' && quick?.available ? 'pin' : vaultKind;
   const isText = kind === 'password' || kind === 'passphrase';
-  const otpLength = kind !== 'pin' ? null : (pinVault ?? quick?.length ?? null);
+  const otpLength = kind !== 'pin' ? null : creating ? choice.pinLength : pinVault ?? quick?.length ?? null;
+  const strength = useStrength(creating && isText ? password : '');
 
   useEffect(() => {
     if (!lockoutUntil) return;
@@ -110,7 +119,22 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
   }, [lockoutUntil]);
   const waitSeconds = lockoutUntil ? Math.max(0, Math.ceil((lockoutUntil - now) / 1000)) : 0;
 
-  const canSubmit = !busy && !verified && waitSeconds === 0 && password.length > 0;
+  // Setup checks.
+  const matches = confirm.length > 0 && confirm === password;
+  const strongEnough = (strength?.score ?? 0) >= 3 && password.length >= 10;
+  const phraseIssue = kind === 'passphrase' ? passphraseProblem(password) : null;
+  const pinComplete = otpLength !== null && digits.length === otpLength;
+  const pinWeak = pinComplete && isWeakPin(digits);
+  const pinMatches = pinComplete && digitsAgain === digits;
+  const canCreate =
+    kind === 'password'
+      ? strongEnough && matches
+      : kind === 'passphrase'
+        ? !phraseIssue && (strength?.score ?? 0) >= 3 && matches
+        : kind === 'pin'
+          ? pinComplete && !pinWeak && pinMatches
+          : newPattern !== null;
+  const canSubmit = !busy && !verified && waitSeconds === 0 && (creating ? canCreate : password.length > 0);
 
   const fail = async (err: unknown) => {
     setBusy(false);
@@ -148,8 +172,16 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
 
   function submit(e?: FormEvent) {
     e?.preventDefault();
-    if (!canSubmit) return;
-    void attempt(() => api.unlock(password), () => requestAnimationFrame(() => input.current?.select()));
+    if (!canSubmit && !(creating && canCreate)) return;
+    if (creating) {
+      const value = kind === 'pin' ? digits : kind === 'pattern' ? newPattern! : password;
+      void attempt(() => api.setup(value, kind), () => {
+        setDigits('');
+        setDigitsAgain('');
+      });
+    } else {
+      void attempt(() => api.unlock(password), () => requestAnimationFrame(() => input.current?.select()));
+    }
   }
 
   const submitDigits = (value: string) =>
@@ -164,15 +196,42 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
       () => window.setTimeout(() => setPattern([]), 700),
     );
 
+  function choose(c: CredentialChoice) {
+    setChoice(c);
+    setPassword('');
+    setConfirm('');
+    setDigits('');
+    setDigitsAgain('');
+    setNewPattern(null);
+    setSuggested(null);
+    setError(null);
+  }
+
+  function suggest() {
+    const phrase =
+      kind === 'passphrase'
+        ? generatePassword({ mode: 'passphrase', words: 5, separator: ' ', capitalize: false, includeNumber: false })
+        : generatePassword({ mode: 'passphrase', words: 5, separator: '-', capitalize: true, includeNumber: true });
+    setPassword(phrase);
+    setConfirm(phrase);
+    setSuggested(phrase);
+  }
+
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => setCapsLock(e.getModifierState?.('CapsLock') ?? false);
 
-  const dialState: DialState = verified ? 'success' : busy ? 'busy' : declined ? 'error' : 'idle';
-  const turns = kind === 'pin' ? digits.length * 5 : kind === 'pattern' ? pattern.length * 5 : password.length;
+  const dialState: DialState = verified ? 'success' : busy ? 'busy' : declined ? 'error' : creating && canCreate ? 'ready' : 'idle';
+  const turns =
+    kind === 'pin'
+      ? (digits.length + digitsAgain.length) * 5
+      : kind === 'pattern'
+        ? (creating ? (newPattern ? 9 : 0) : pattern.length) * 5
+        : password.length + confirm.length;
   const locked = busy || verified;
   const name = CREDENTIAL_NAMES[kind];
 
-  const lede =
-    kind === 'pin'
+  const lede = creating
+    ? `Choose how you’ll unlock. Whatever you pick encrypts everything here and can’t be recovered.`
+    : kind === 'pin'
       ? `Enter your ${otpLength}-digit PIN to unlock.`
       : kind === 'pattern'
         ? 'Draw your pattern to unlock.'
@@ -186,16 +245,76 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
       <div className="lock-overlay" />
       <div className="lock-center">
         <motion.section ref={card} className="lock-card" role="dialog" aria-modal="true" aria-labelledby="lock-title" aria-describedby="lock-lede" {...dialog}>
-          <Dial turns={turns} state={dialState} size={176} />
+          <Dial turns={turns} state={dialState} size={creating ? 150 : 176} />
           <h1 id="lock-title" className="lock-title">
-            Welcome back
+            {creating ? 'Get started' : 'Welcome back'}
           </h1>
           <p id="lock-lede" className="lock-lede">
             {lede}
           </p>
 
+          {creating && (
+            <div className="lock-tabs">
+              <CredentialPicker value={choice} onChange={choose} />
+            </div>
+          )}
+
           {kind === 'pin' ? (
             <form key={`pin-${otpLength}`} className="lock-form" onSubmit={submit}>
+              {creating ? (
+                <>
+                  <div className="field">
+                    <div className="field-row">
+                      <span className="field-label">PIN</span>
+                      <button type="button" className="text-btn" onClick={() => setShow(!show)} aria-pressed={show}>
+                        {show ? <EyeOff size={14} /> : <Eye size={14} />}
+                        {show ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    <OtpInput
+                      id="setup-pin"
+                      label={`New ${otpLength}-digit PIN`}
+                      length={otpLength!}
+                      value={digits}
+                      masked={!show}
+                      autoFocus
+                      disabled={locked}
+                      invalid={pinWeak}
+                      onChange={(v) => {
+                        setDigits(v);
+                        if (v.length < otpLength!) setDigitsAgain('');
+                      }}
+                      onComplete={(v) => !isWeakPin(v) && requestAnimationFrame(() => document.getElementById('setup-pin-again')?.focus())}
+                      describedBy="lock-status"
+                    />
+                  </div>
+                  <div className="field">
+                    <span className="field-label">Confirm PIN</span>
+                    <OtpInput
+                      id="setup-pin-again"
+                      label="Confirm PIN"
+                      length={otpLength!}
+                      value={digitsAgain}
+                      masked={!show}
+                      disabled={locked || !pinComplete || pinWeak}
+                      invalid={digitsAgain.length === otpLength && !pinMatches}
+                      success={pinMatches}
+                      onChange={setDigitsAgain}
+                    />
+                  </div>
+                  <ul className="checklist">
+                    <li data-ok={pinComplete || undefined}>{otpLength} digits</li>
+                    <li data-ok={(pinComplete && !pinWeak) || undefined} data-bad={pinWeak || undefined}>
+                      {pinWeak ? 'Too easy to guess: avoid patterns, repeats and years' : 'Not an obvious one like 1234, 0000 or a year'}
+                    </li>
+                    <li data-ok={pinMatches || undefined}>Both entries match</li>
+                  </ul>
+                  <PinWarning length={otpLength!} />
+                  <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} disabled={!canCreate || locked}>
+                    Set up
+                  </Button>
+                </>
+              ) : (
                 <OtpInput
                   id="unlock-pin"
                   label={`${otpLength}-digit PIN`}
@@ -213,9 +332,19 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                   onComplete={submitDigits}
                   describedBy="lock-status"
                 />
+              )}
             </form>
           ) : kind === 'pattern' ? (
             <form key="pattern" className="lock-form lock-form-pattern" onSubmit={submit}>
+              {creating ? (
+                <>
+                  <PatternSetup onChange={setNewPattern} disabled={locked} />
+                  <PinWarning pattern />
+                  <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} disabled={!canCreate || locked}>
+                    Set up
+                  </Button>
+                </>
+              ) : (
                 <PatternInput
                   value={pattern}
                   onChange={(p) => {
@@ -228,6 +357,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                   state={verified ? 'success' : declined ? 'error' : 'idle'}
                   disabled={locked || waitSeconds > 0}
                 />
+              )}
             </form>
           ) : (
             <form key={`text-${kind}`} className="lock-form" onSubmit={submit}>
@@ -242,14 +372,15 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                   type={show ? 'text' : 'password'}
                   className={`input input-lg${show ? ' input-mono' : ''}`}
                   data-state={verified ? 'success' : undefined}
-                  placeholder={kind === 'passphrase' ? 'Passphrase' : 'Master password'}
-                  autoComplete="current-password"
+                  placeholder={kind === 'passphrase' ? (creating ? 'Four or more words' : 'Passphrase') : 'Master password'}
+                  autoComplete={creating ? 'new-password' : 'current-password'}
                   autoFocus
                   spellCheck={false}
                   value={password}
                   disabled={locked}
                   onChange={(e) => {
                     setPassword(e.target.value);
+                    setSuggested(null);
                     setFailed(false);
                     if (error) setError(null);
                   }}
@@ -263,8 +394,68 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                 </IconButton>
               </div>
 
+              {creating && (
+                <>
+                  <AnimatePresence initial={false}>
+                    {suggested && (
+                      <motion.div className="collapse" {...collapse}>
+                        <div className="suggestion">
+                          <span className="suggestion-label">Suggested {name}</span>
+                          <p className="suggestion-value">{suggested}</p>
+                          <p className="suggestion-note">Write it down or memorise it before you continue.</p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <div className="lock-row">
+                    <StrengthMeter result={password ? strength : null} />
+                    <button type="button" className="text-btn" onClick={suggest} disabled={locked}>
+                      <Sparkles size={14} />
+                      {suggested ? 'Suggest another' : 'Suggest one'}
+                    </button>
+                  </div>
+                  <div className="input-icon">
+                    {kind === 'passphrase' ? <WholeWord size={17} aria-hidden="true" className="input-icon-lead" /> : <Lock size={17} aria-hidden="true" className="input-icon-lead" />}
+                    <label htmlFor="confirm" className="visually-hidden">
+                      Confirm
+                    </label>
+                    <input
+                      id="confirm"
+                      type={show ? 'text' : 'password'}
+                      className={`input input-lg${show ? ' input-mono' : ''}`}
+                      placeholder={kind === 'passphrase' ? 'Confirm passphrase' : 'Confirm master password'}
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      value={confirm}
+                      disabled={locked}
+                      onChange={(e) => setConfirm(e.target.value)}
+                      onKeyDown={onKey}
+                    />
+                    {matches && (
+                      <span className="input-icon-trail input-check" aria-label="Entries match">
+                        <Check size={16} strokeWidth={2.6} />
+                      </span>
+                    )}
+                  </div>
+                  <ul className="checklist">
+                    {kind === 'passphrase' ? (
+                      <>
+                        <li data-ok={passphraseWords(password).length >= 4 || undefined}>At least 4 words ({passphraseWords(password).length} so far)</li>
+                        <li data-ok={(password.length > 0 && !phraseIssue) || undefined} data-bad={(passphraseWords(password).length >= 4 && phraseIssue) || undefined}>
+                          {passphraseWords(password).length >= 4 && phraseIssue ? phraseIssue : 'Each word 3+ letters, no repeats'}
+                        </li>
+                      </>
+                    ) : (
+                      <li data-ok={password.length >= 10 || undefined}>At least 10 characters</li>
+                    )}
+                    <li data-ok={(strength?.score ?? 0) >= 3 || undefined}>Rated Strong or better</li>
+                    <li data-ok={matches || undefined}>Both entries match</li>
+                  </ul>
+                </>
+              )}
+
               <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} disabled={!canSubmit}>
-                Unlock
+                {creating ? 'Set up' : 'Unlock'}
               </Button>
             </form>
           )}
@@ -274,7 +465,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
               {verified ? (
                 <motion.p key="ok" className="form-success" {...fade}>
                   <Check size={14} strokeWidth={2.6} />
-                  Unlocked
+                  {creating ? 'All set' : 'Unlocked'}
                 </motion.p>
               ) : error ? (
                 <motion.p key={`e-${error}`} className="form-error" {...fade}>
@@ -292,7 +483,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
             </AnimatePresence>
           </div>
 
-          {(vaultKind === 'password' || vaultKind === 'passphrase') && quick?.available && (
+          {!creating && (vaultKind === 'password' || vaultKind === 'passphrase') && quick?.available && (
             <button
               type="button"
               className="text-btn lock-switch"
@@ -322,7 +513,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
           <StorageDialog
             mode={storageMode}
             storage={status.storage}
-            credential={status.credential}
+            credential={status.initialized ? status.credential : null}
             onClose={() => setStorageMode(null)}
             onDone={() => {
               setStorageMode(null);
