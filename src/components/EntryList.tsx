@@ -1,11 +1,13 @@
-import { forwardRef, Fragment, useMemo } from 'react';
-import type { KeyboardEvent } from 'react';
-import { ArrowDownAZ, ChevronDown, Clock3, KeyRound, Plus, Search, Star, Upload, X } from 'lucide-react';
-import { useSettings } from '../context.tsx';
-import type { EntrySummary, EntryType } from '../../shared/types.ts';
-import { hostname, TYPE_LABELS } from '../util.ts';
+import { forwardRef, Fragment, useCallback, useMemo, useState } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
+import { ArrowDownAZ, AtSign, ChevronDown, Clock3, ExternalLink, KeyRound, Pencil, Plus, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+import { api, errorMessage } from '../api.ts';
+import { useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
+import type { Entry, EntrySummary, EntryType } from '../../shared/types.ts';
+import { hostname, safeHref, TYPE_LABELS } from '../util.ts';
 import { TYPE_ICONS } from './Sidebar.tsx';
-import { Button, EmptyState, IconButton, Kbd, Menu, Monogram, Tooltip } from './ui.tsx';
+import { Button, ContextMenu, EmptyState, IconButton, Kbd, Menu, Monogram, Tooltip } from './ui.tsx';
+import type { MenuItem } from './ui.tsx';
 
 export type Sort = 'name' | 'recent';
 
@@ -18,6 +20,9 @@ interface Props {
   onSort: (s: Sort) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onEdit: (entry: Entry) => void;
+  onChanged: (entry: Entry) => void;
+  onDeleted: (id: string) => void;
   onCreate: (type: EntryType) => void;
   onImport: () => void;
   totalCount: number;
@@ -30,10 +35,74 @@ function subtitle(e: EntrySummary): string {
 }
 
 export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
-  { title, entries, query, onQuery, sort, onSort, selectedId, onSelect, onCreate, onImport, totalCount, defaultType },
+  { title, entries, query, onQuery, sort, onSort, selectedId, onSelect, onEdit, onChanged, onDeleted, onCreate, onImport, totalCount, defaultType },
   searchRef,
 ) {
   const hideIcons = useSettings().settings.hideIcons;
+  const copy = useCopy();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: EntrySummary; row: HTMLElement } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  const openMenu = (e: MouseEvent<HTMLButtonElement>, entry: EntrySummary) => {
+    e.preventDefault();
+    onSelect(entry.id);
+    // The keyboard's menu key reports no pointer position: open under the row instead.
+    const r = e.currentTarget.getBoundingClientRect();
+    const keyboard = e.clientX === 0 && e.clientY === 0;
+    setMenu({ x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, entry, row: e.currentTarget });
+  };
+
+  // Summaries carry no secrets, so actions that need the password load the full item first.
+  const withEntry = (id: string, run: (entry: Entry) => Promise<void> | void) => async () => {
+    try {
+      await run(await api.entry(id));
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+
+  const menuItems = (e: EntrySummary): MenuItem[] => {
+    const href = safeHref(e.url);
+    const items: MenuItem[] = [
+      { label: 'Edit', icon: <Pencil size={15} />, onSelect: withEntry(e.id, onEdit) },
+    ];
+    if (e.username) items.push({ label: 'Copy username', icon: <AtSign size={15} />, separatorBefore: true, onSelect: () => void copy(e.username, 'username', false) });
+    if (e.hasPassword) items.push({ label: 'Copy password', icon: <KeyRound size={15} />, separatorBefore: !e.username, onSelect: withEntry(e.id, (full) => void copy(full.password, 'password')) });
+    if (href) items.push({ label: 'Open website', icon: <ExternalLink size={15} />, onSelect: () => window.open(href, '_blank', 'noopener,noreferrer') });
+    items.push(
+      {
+        label: e.favorite ? 'Remove from favorites' : 'Add to favorites',
+        icon: e.favorite ? <StarOff size={15} /> : <Star size={15} />,
+        separatorBefore: true,
+        onSelect: withEntry(e.id, async (full) => onChanged(await api.updateEntry(full.id, { ...full, favorite: !full.favorite }))),
+      },
+      {
+        label: 'Delete',
+        icon: <Trash2 size={15} />,
+        danger: true,
+        separatorBefore: true,
+        onSelect: async () => {
+          const ok = await confirm({
+            title: `Delete ${e.title}?`,
+            body: 'You won’t be able to recover this item or its password history once it’s deleted.',
+            confirmLabel: 'Delete item',
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            await api.deleteEntry(e.id);
+            toast(`Deleted ${e.title}`);
+            onDeleted(e.id);
+          } catch (err) {
+            toast(errorMessage(err), 'error');
+          }
+        },
+      },
+    );
+    return items;
+  };
   const groups = useMemo(() => {
     if (sort !== 'name' || query) return [{ letter: '', items: entries }];
     const out: { letter: string; items: EntrySummary[] }[] = [];
@@ -162,7 +231,14 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
                 )}
                 {g.items.map((e) => (
                   <li key={e.id}>
-                    <button type="button" className="entry-row" aria-current={selectedId === e.id ? 'true' : undefined} onClick={() => onSelect(e.id)}>
+                    <button
+                      type="button"
+                      className="entry-row"
+                      aria-current={selectedId === e.id ? 'true' : undefined}
+                      aria-haspopup="menu"
+                      onClick={() => onSelect(e.id)}
+                      onContextMenu={(ev) => openMenu(ev, e)}
+                    >
                       {/* Only logins get a picture; other kinds are plain text rows. */}
                       {!hideIcons[e.type] && <Monogram title={e.title} type={e.type} icon={e.icon} />}
                       <span className="entry-row-text">
@@ -178,6 +254,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
           </ul>
         )}
       </div>
+      <ContextMenu at={menu} items={menu ? menuItems(menu.entry) : []} label={menu ? `Actions for ${menu.entry.title}` : 'Actions'} onClose={closeMenu} returnTo={menu?.row} />
     </section>
   );
 });

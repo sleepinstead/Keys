@@ -354,6 +354,16 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                   onSort={setSort}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
+                  onEdit={(entry) => openEditor(entry)}
+                  onChanged={(updated) => {
+                    setEntries((list) => (list ?? []).map((e) => (e.id === updated.id ? summarise(updated) : e)));
+                    if (updated.id === selectedRef.current) setDetailVersion((v) => v + 1);
+                  }}
+                  onDeleted={(id) => {
+                    setEntries((list) => (list ?? []).filter((e) => e.id !== id));
+                    if (selectedRef.current === id) setSelectedId(null);
+                    refreshAudit();
+                  }}
                   onCreate={create}
                   onImport={() => selectView({ kind: 'settings' })}
                   totalCount={entries?.length ?? -1}

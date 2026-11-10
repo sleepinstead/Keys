@@ -5803,3 +5803,13 @@ svg.dial-layer {
   color: var(--text-4);
   font-size: 12.5px;
 }
+
+/* Right-click menu: placed at the pointer, so it's fixed rather than hung under a trigger. */
+.menu-context {
+  position: fixed;
+  top: auto;
+  z-index: 90;
+  width: 224px; /* fixed: wide enough to breathe, and the same for every item */
+  min-width: 0;
+  transform-origin: top left;
+}

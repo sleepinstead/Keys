@@ -412,6 +412,109 @@ export interface MenuItem {
   separatorBefore?: boolean;
 }
 
+/** Arrow keys move between a menu's items, wrapping at the ends. */
+function moveFocus(e: KeyboardEvent, list: HTMLElement | null) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const buttons = [...(list?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)') ?? [])];
+  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  buttons[(i + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+}
+
+function MenuButtons({ items, close }: { items: MenuItem[]; close: () => void }) {
+  return (
+    <>
+      {items.map((item) => (
+        <div key={item.label}>
+          {item.separatorBefore && <div className="menu-sep" role="separator" />}
+          <button
+            type="button"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.checked}
+            className={item.danger ? 'is-danger' : undefined}
+            onClick={() => {
+              close();
+              item.onSelect();
+            }}
+          >
+            {item.icon && <span className="menu-icon">{item.icon}</span>}
+            <span className="menu-label">{item.label}</span>
+            {item.shortcut && <Kbd>{item.shortcut}</Kbd>}
+            {item.checked && <Check size={15} className="menu-check" />}
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Right-click menu at the pointer (or under the row, from the keyboard's menu key).
+ * Kept inside the window, closed by any click, scroll or Escape, and focus goes back to `returnTo`.
+ */
+export function ContextMenu({ at, items, label, onClose, returnTo }: { at: { x: number; y: number } | null; items: MenuItem[]; label: string; onClose: () => void; returnTo?: HTMLElement | null }) {
+  const list = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const close = useCallback(() => {
+    onClose();
+    returnTo?.focus({ preventScroll: true });
+  }, [onClose, returnTo]);
+
+  useLayoutEffect(() => {
+    if (!at || !list.current) return setPos(at);
+    const { width, height } = list.current.getBoundingClientRect();
+    setPos({
+      x: Math.max(8, Math.min(at.x, window.innerWidth - width - 8)),
+      y: at.y + height + 8 > window.innerHeight ? Math.max(8, at.y - height) : at.y,
+    });
+  }, [at]);
+
+  useEffect(() => {
+    if (!at) return;
+    const onDown = (e: PointerEvent) => !list.current?.contains(e.target as Node) && onClose();
+    const dismiss = () => onClose();
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+    window.addEventListener('blur', dismiss);
+    requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]')?.focus());
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+      window.removeEventListener('blur', dismiss);
+    };
+  }, [at, onClose]);
+
+  return createPortal(
+    <AnimatePresence>
+      {at && (
+        <motion.div
+          ref={list}
+          role="menu"
+          aria-label={label}
+          className="menu menu-context"
+          style={{ left: (pos ?? at).x, top: (pos ?? at).y }}
+          onContextMenu={(e) => e.preventDefault()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              close();
+            } else if (e.key === 'Tab') {
+              e.preventDefault();
+              close();
+            } else moveFocus(e, list.current);
+          }}
+          {...pop}
+        >
+          <MenuButtons items={items} close={close} />
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
 /** Popover menu anchored to its trigger. Arrow keys move, Enter picks, Escape closes. */
 export function Menu({
   trigger,
@@ -443,21 +546,13 @@ export function Menu({
   }, [open, close]);
 
   const onKeyDown = (e: KeyboardEvent) => {
-    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]') ?? [])];
-    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (e.key === 'Escape' && open) {
+    if (!open) return;
+    if (e.key === 'Escape') {
       e.stopPropagation();
       close();
       root.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    } else if (e.key === 'ArrowDown' && open) {
-      e.preventDefault();
-      buttons[(i + 1) % buttons.length]?.focus();
-    } else if (e.key === 'ArrowUp' && open) {
-      e.preventDefault();
-      buttons[(i - 1 + buttons.length) % buttons.length]?.focus();
-    } else if (e.key === 'Tab' && open) {
-      close();
-    }
+    } else if (e.key === 'Tab') close();
+    else moveFocus(e, list.current);
   };
 
   return (
@@ -467,26 +562,7 @@ export function Menu({
         {open && (
           <motion.div ref={list} role="menu" aria-label={label} className={`menu menu-${align}`} {...pop}>
             {heading && <div className="menu-heading">{heading}</div>}
-            {items.map((item) => (
-              <div key={item.label}>
-                {item.separatorBefore && <div className="menu-sep" role="separator" />}
-                <button
-                  type="button"
-                  role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
-                  aria-checked={item.checked}
-                  className={item.danger ? 'is-danger' : undefined}
-                  onClick={() => {
-                    close();
-                    item.onSelect();
-                  }}
-                >
-                  {item.icon && <span className="menu-icon">{item.icon}</span>}
-                  <span className="menu-label">{item.label}</span>
-                  {item.shortcut && <Kbd>{item.shortcut}</Kbd>}
-                  {item.checked && <Check size={15} className="menu-check" />}
-                </button>
-              </div>
-            ))}
+            <MenuButtons items={items} close={close} />
             {footer?.(close)}
           </motion.div>
         )}
