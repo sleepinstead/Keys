@@ -151,3 +151,55 @@ test('erasing needs a session and the password, then leaves an empty database', 
     ctx.store.close();
   }
 });
+
+test('exact copies of a login are grouped, newest kept, and copies with their own notes are flagged', async () => {
+  const { buildAuditReport } = await import('../server/audit.ts');
+  const { DEFAULT_SETTINGS } = await import('../shared/types.ts');
+  const base = { type: 'login', title: 'GitHub', username: 'me@x.com', password: 'Correct-Horse-1', url: 'https://github.com', notes: '', codes: '', customFields: [], categoryId: null, favorite: false, icon: '', passwordUpdatedAt: 0, history: [], breach: null, createdAt: 0 };
+  const entries = [
+    { ...base, id: 'old', updatedAt: 1 },
+    { ...base, id: 'new', updatedAt: 3, url: 'www.github.com/login', username: 'ME@x.com ' },
+    { ...base, id: 'notes', updatedAt: 2, notes: 'backup email: other@x.com' },
+    { ...base, id: 'other-site', updatedAt: 4, url: 'gitlab.com' }, // same password, different site: reused, not a copy
+  ] as any[];
+  const r = buildAuditReport(entries, DEFAULT_SETTINGS);
+  assert.equal(r.duplicateGroups.length, 1);
+  assert.deepEqual(r.duplicateGroups[0]!.items.map((i) => [i.id, i.extra]), [['new', false], ['notes', true], ['old', false]]);
+  assert.equal(r.totals.duplicates, 2);
+  assert.equal(r.totals.reused, 4);
+});
+
+test('bulk delete needs a session and removes all or nothing', async () => {
+  const ctx = createApp({ dbFile: ':memory:', allowedOrigins: [] });
+  const server = await new Promise<ReturnType<typeof ctx.app.listen>>((resolve) => {
+    const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  let token = '';
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-keys-request': '1', 'x-keys-session': token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const parsed = (await res.json()) as any;
+    if (parsed.sessionToken) token = parsed.sessionToken;
+    return { status: res.status, body: parsed };
+  };
+  try {
+    await call('POST', '/setup', { password: MASTER });
+    const a = (await call('POST', '/entries', { type: 'login', title: 'a', password: 'p' })).body.id;
+    const b = (await call('POST', '/entries', { type: 'login', title: 'b', password: 'p' })).body.id;
+    const session = token;
+    token = 'nope';
+    assert.equal((await call('POST', '/entries/delete', { ids: [a] })).status, 401);
+    token = session;
+    assert.equal((await call('POST', '/entries/delete', { ids: [a, 'missing'] })).status, 404);
+    assert.equal((await call('GET', '/entries')).body.length, 2, 'a failed batch removes nothing');
+    assert.equal((await call('POST', '/entries/delete', { ids: [a, b] })).body.deleted, 2);
+    assert.equal((await call('GET', '/entries')).body.length, 0);
+  } finally {
+    ctx.sessions.dispose();
+    server.close();
+    ctx.store.close();
+  }
+});

@@ -301,6 +301,17 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
     res.json({ ok: true });
   });
 
+  /** Removes several items at once (duplicate clean-up), all or none. */
+  api.post('/entries/delete', json, (req, res) => {
+    keyFor(req);
+    const ids: unknown = req.body?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 10_000 || !ids.every((x) => typeof x === 'string' && x.length <= 64)) {
+      throw new HttpError(400, 'Choose the items to remove');
+    }
+    vault.store.transaction(() => ids.forEach((id) => vault.deleteEntry(id)));
+    res.json({ deleted: ids.length });
+  });
+
   // Sets only the picture. Not a user edit, so "recently edited" order stays the same.
   api.put('/entries/:id/icon', json, (req, res) => {
     const key = keyFor(req);

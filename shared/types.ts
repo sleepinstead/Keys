@@ -228,10 +228,21 @@ export interface AuditReport {
     outdated: number;
     breached: number;
     unchecked: number;
+    /** Extra copies that could be removed, not counting the one kept in each group. */
+    duplicates: number;
   };
   items: AuditItem[];
   reusedGroups: string[][];
+  /** Logins with the same site, username and password: usually the same account imported twice. */
+  duplicateGroups: DuplicateGroup[];
   breachCheckEnabled: boolean;
+}
+
+export interface DuplicateGroup {
+  username: string;
+  site: string;
+  /** Newest first; the first is the suggested one to keep. */
+  items: { id: string; title: string; updatedAt: number; /** Has notes, codes or fields the newest copy doesn't. */ extra: boolean }[];
 }
 
 export type ExportFormat = 'encrypted' | 'json' | 'csv';

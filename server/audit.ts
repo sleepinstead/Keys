@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { AuditIssue, AuditItem, AuditReport, Entry, Settings } from '../shared/types.ts';
+import type { AuditIssue, AuditItem, AuditReport, DuplicateGroup, Entry, Settings } from '../shared/types.ts';
 import { checkStrength } from './strength.ts';
 
 const DAY = 86_400_000;
@@ -31,6 +31,28 @@ export function buildAuditReport(entries: Entry[], settings: Settings, now = Dat
     reusedGroups.push(ids);
     for (const id of ids) reuseOf.set(id, ids.length);
   }
+
+  // Exact copies: same site (or title, without one), username and password.
+  const copies = new Map<string, Entry[]>();
+  for (const e of logins) {
+    const site = hostOf(e.url) || e.title.trim().toLowerCase();
+    const key = crypto.createHash('sha256').update(JSON.stringify([site, e.username.trim().toLowerCase(), e.password])).digest('base64');
+    copies.set(key, [...(copies.get(key) ?? []), e]);
+  }
+  const extras = (e: Entry) => JSON.stringify([e.notes.trim(), e.codes.trim(), e.customFields.map((f) => [f.label, f.value])]);
+  const duplicateGroups: DuplicateGroup[] = [...copies.values()]
+    .filter((group) => group.length > 1)
+    .map((group) => {
+      const sorted = [...group].sort((a, b) => b.updatedAt - a.updatedAt);
+      const kept = extras(sorted[0]!);
+      const empty = extras({ ...sorted[0]!, notes: '', codes: '', customFields: [] });
+      return {
+        username: sorted[0]!.username,
+        site: hostOf(sorted[0]!.url) || sorted[0]!.title,
+        items: sorted.map((e, i) => ({ id: e.id, title: e.title, updatedAt: e.updatedAt, extra: i > 0 && extras(e) !== kept && extras(e) !== empty })),
+      };
+    })
+    .sort((a, b) => b.items.length - a.items.length || a.site.localeCompare(b.site));
 
   const items: AuditItem[] = logins.map((e) => {
     const strength = checkStrength(e.password, [e.username, e.title, hostOf(e.url)]);
@@ -77,9 +99,11 @@ export function buildAuditReport(entries: Entry[], settings: Settings, now = Dat
       outdated: count('outdated'),
       breached: count('breached'),
       unchecked: items.filter((i) => i.breachCheckedAt === null).length,
+      duplicates: duplicateGroups.reduce((n, g) => n + g.items.length - 1, 0),
     },
     items,
     reusedGroups,
+    duplicateGroups,
     breachCheckEnabled: settings.breachCheckEnabled,
   };
 }

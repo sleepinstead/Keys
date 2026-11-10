@@ -397,7 +397,16 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
             ) : (
               <motion.div key={view.kind} className="page-pane" {...fade}>
                 {view.kind === 'generator' && <GeneratorView />}
-                {view.kind === 'audit' && <AuditView onOpen={openItem} onReport={onAuditReport} />}
+                {view.kind === 'audit' && (
+                  <AuditView
+                    onOpen={openItem}
+                    onReport={onAuditReport}
+                    onEntriesChanged={() => {
+                      setSelectedId(null);
+                      void loadEntries();
+                    }}
+                  />
+                )}
                 {view.kind === 'settings' && (
                   <SettingsView
                     categories={categories}

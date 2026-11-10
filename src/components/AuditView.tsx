@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Clock3, Copy as CopyIcon, KeyRound, Radar, RefreshCw, ShieldAlert, ShieldX, Zap } from 'lucide-react';
+import { ChevronRight, Clock3, Copy as CopyIcon, KeyRound, Layers, Radar, RefreshCw, ShieldAlert, ShieldX, Zap } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
 import { useSettings, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
-import type { AuditIssue, AuditItem, AuditReport } from '../../shared/types.ts';
+import type { AuditIssue, AuditItem, AuditReport, DuplicateGroup } from '../../shared/types.ts';
 import { plural, timeAgo } from '../util.ts';
-import { Button, EmptyState, Monogram, Spinner, STRENGTH_WORDS } from './ui.tsx';
+import { Button, Dialog, EmptyState, Monogram, Spinner, STRENGTH_WORDS } from './ui.tsx';
 
 const ISSUES: { key: AuditIssue; label: string; explain: string; icon: ReactNode; tone: string }[] = [
   { key: 'breached', label: 'Breached', explain: 'Seen in public data breaches. Change these first.', icon: <ShieldX size={18} />, tone: 'bad' },
@@ -75,9 +75,8 @@ function HealthBar({ items }: { items: AuditItem[] }) {
   const counts = { healthy: 0, breached: 0, weak: 0, reused: 0, outdated: 0 };
   for (const item of items) counts[WORST_FIRST.find((k) => item.issues.includes(k)) ?? 'healthy']++;
   const parts = (['healthy', ...WORST_FIRST] as const).filter((k) => counts[k] > 0);
-  const label = (k: (typeof parts)[number]) => (k === 'healthy' ? 'Healthy' : ISSUES.find((i) => i.key === k)!.label);
   return (
-    <div className="health-bar">
+    <div className="health-bar" role="img" aria-label={parts.map((k) => `${counts[k]} ${k === 'healthy' ? 'healthy' : ISSUES.find((i) => i.key === k)!.label.toLowerCase()}`).join(', ')}>
       <div className="health-bar-track">
         {parts.map((k) => (
           <motion.span
@@ -90,15 +89,111 @@ function HealthBar({ items }: { items: AuditItem[] }) {
           />
         ))}
       </div>
-      <ul className="health-legend">
-        {parts.map((k) => (
-          <li key={k} data-kind={k}>
-            <span className="health-dot" />
-            <span className="health-legend-count">{counts[k]}</span> {label(k)}
-          </li>
-        ))}
-      </ul>
     </div>
+  );
+}
+
+function issueSummary(kind: AuditIssue, count: number, report: AuditReport, outdatedDays: number): string {
+  if (count === 0) return kind === 'reused' ? 'Every login has its own password.' : 'None.';
+  if (kind === 'breached') return 'Seen in known data breaches. Change these first.';
+  if (kind === 'weak') return 'Quick to guess. Replace them with generated passwords.';
+  if (kind === 'reused') return `${plural(report.reusedGroups.length, 'password')} shared across ${plural(count, 'login')}.`;
+  return `Unchanged for over ${outdatedDays >= 365 ? plural(Math.round(outdatedDays / 365), 'year') : plural(Math.round(outdatedDays / 30), 'month')}.`;
+}
+
+/** Review exact copies of the same login and remove the extras. One copy of each always stays. */
+function DuplicatesDialog({ open, groups, onClose, onRemoved }: { open: boolean; groups: DuplicateGroup[]; onClose: () => void; onRemoved: (n: number) => void }) {
+  // By default, remove every older copy that holds nothing the newest one lacks.
+  const suggested = () => new Set(groups.flatMap((g) => g.items.slice(1).filter((i) => !i.extra).map((i) => i.id)));
+  const [remove, setRemove] = useState<Set<string>>(suggested);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setRemove(suggested());
+      setError(null);
+    }
+  }, [open, groups]);
+
+  const toggle = (id: string) =>
+    setRemove((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { deleted } = await api.deleteEntries([...remove]);
+      onRemoved(deleted);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Duplicate logins"
+      description="Each group is one account saved more than once. Keep one copy and remove the rest. Removed logins can’t be recovered."
+      className="dialog-dupes"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" loading={busy} disabled={remove.size === 0} onClick={() => void confirm()}>
+            {remove.size === 0 ? 'Remove' : `Remove ${plural(remove.size, 'login')}`}
+          </Button>
+        </>
+      }
+    >
+      <div className="dupe-groups">
+        {groups.map((g) => {
+          const kept = g.items.filter((i) => !remove.has(i.id)).length;
+          return (
+            <section key={g.items[0]!.id} className="dupe-group">
+              <header>
+                <Monogram title={g.site} type="login" icon="" />
+                <div>
+                  <strong>{g.site}</strong>
+                  <span>{g.username || 'No username'}</span>
+                </div>
+              </header>
+              <ul>
+                {g.items.map((item) => {
+                  const removing = remove.has(item.id);
+                  // The last remaining copy can't be ticked: removing it would lose the account.
+                  const last = !removing && kept === 1;
+                  return (
+                    <li key={item.id}>
+                      <label className="dupe-row" data-removing={removing || undefined}>
+                        <input type="checkbox" checked={removing} disabled={last || busy} onChange={() => toggle(item.id)} aria-label={`Remove ${item.title}, edited ${timeAgo(item.updatedAt)}`} />
+                        <span className="dupe-row-title">{item.title}</span>
+                        <span className="dupe-row-meta">
+                          {item.extra && <span className="badge" data-tone="warn">Has its own notes</span>}
+                          {removing ? 'Remove' : 'Keep'} · edited {timeAgo(item.updatedAt)}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Dialog>
   );
 }
 
@@ -147,12 +242,13 @@ function AuditLoading({ outdatedDays, breaches }: { outdatedDays: number; breach
   );
 }
 
-export function AuditView({ onOpen, onReport }: { onOpen: (id: string) => void; onReport: (r: AuditReport) => void }) {
+export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id: string) => void; onReport: (r: AuditReport) => void; onEntriesChanged: () => void }) {
   const { settings, updateSettings } = useSettings();
   const [report, setReport] = useState<AuditReport | null>(null);
   const [filter, setFilter] = useState<AuditIssue | 'all'>('all');
   const [checking, setChecking] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   /** Bumped on every completed check so the gauge replays. */
   const [run, setRun] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -232,41 +328,76 @@ export function AuditView({ onOpen, onReport }: { onOpen: (id: string) => void; 
       <div className="audit-grid">
         <div className="audit-col">
       {totals.logins > 0 && (
-        <section className="audit-top">
-          <div className="card audit-health">
+        <section className="card audit-summary" aria-label="Summary">
+          <div className="audit-summary-head">
             <HealthGauge key={run} value={report.health} />
-            <div className="audit-health-text">
+            <div className="audit-summary-text">
               <span className="badge" data-tone={healthTone(report.health)}>
                 {report.health >= 80 ? 'Good' : report.health >= 50 ? 'Fair' : 'At risk'}
               </span>
               <h2>{report.health >= 80 ? 'Your passwords are in good shape' : report.health >= 50 ? 'A few things to tidy up' : 'Some passwords need fixing'}</h2>
               <p>
-                {flagged.length === 0
-                  ? 'No breached, weak, reused or old passwords.'
-                  : 'Breached and weak passwords cost the most points. Start at the top of the list below.'}
+                {plural(totals.logins, 'login')} checked, {totals.logins - flagged.length} healthy.
+                {flagged.length > 0 && ' Fixing breached and weak passwords raises the score most.'}
               </p>
               <HealthBar items={report.items} />
             </div>
           </div>
-          <div className="issue-grid" role="tablist" aria-label="Filter by issue">
-            {ISSUES.map((i) => (
-              <button
-                key={i.key}
-                type="button"
-                role="tab"
-                aria-selected={filter === i.key}
-                className="issue-tile"
-                data-tone={i.tone}
-                onClick={() => setFilter(filter === i.key ? 'all' : i.key)}
-              >
-                <span className="issue-icon">{i.icon}</span>
-                <span className="issue-count">{totals[i.key]}</span>
-                <span className="issue-label">{i.label}</span>
-              </button>
-            ))}
-          </div>
+
+          <ul className="audit-issue-list" aria-label="Filter by issue">
+            {ISSUES.map((i) => {
+              const count = totals[i.key];
+              const unchecked = i.key === 'breached' && totals.unchecked === totals.logins;
+              return (
+                <li key={i.key}>
+                  <button
+                    type="button"
+                    className="audit-issue"
+                    data-kind={i.key}
+                    aria-pressed={filter === i.key}
+                    disabled={count === 0}
+                    onClick={() => setFilter(filter === i.key ? 'all' : i.key)}
+                  >
+                    <span className="health-dot" aria-hidden="true" />
+                    <span className="audit-issue-text">
+                      <strong>{i.label}</strong>
+                      <span>{unchecked ? 'Not checked yet. Run a breach check to find out.' : issueSummary(i.key, count, report, settings.outdatedDays)}</span>
+                    </span>
+                    <span className="audit-issue-count">{unchecked ? '–' : count}</span>
+                    <ChevronRight size={16} className="audit-issue-chevron" aria-hidden="true" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {totals.duplicates > 0 && (
+            <div className="audit-dupes">
+              <span className="audit-dupes-icon" aria-hidden="true">
+                <Layers size={16} />
+              </span>
+              <p>
+                <strong>{plural(totals.duplicates, 'duplicate login')}</strong>
+                <span>Same site, username and password as another login, often from importing twice.</span>
+              </p>
+              <Button variant="outline" size="sm" onClick={() => setReviewing(true)}>
+                Review
+              </Button>
+            </div>
+          )}
         </section>
       )}
+      <DuplicatesDialog
+        open={reviewing}
+        groups={report.duplicateGroups}
+        onClose={() => setReviewing(false)}
+        onRemoved={(n) => {
+          setReviewing(false);
+          toast(`Removed ${plural(n, 'duplicate login')}`);
+          onEntriesChanged();
+          void load();
+        }}
+      />
       <AnimatePresence>
         {error && (
           <motion.p className="form-error" role="alert" {...fade}>
