@@ -1,0 +1,8 @@
+node_modules
+dist
+# The vault. Encrypted, but it's your data: never commit it.
+data/
+.DS_Store
+.claude
+.git
+tests/

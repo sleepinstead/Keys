@@ -1,0 +1,1 @@
+Only commit or push changes when explicitly instructed to do so. Always use my Git-configured email address for all commits. Execute all commit and push operations exclusively through standard Git CLI commands. Never add a co-author, `Co-authored-by` trailer, or any other co-author attribution to commits. Do not commit or push automatically under any circumstances.
