@@ -46,8 +46,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const openMenu = (e: MouseEvent<HTMLButtonElement>, entry: EntrySummary) => {
-    e.preventDefault();
-    onSelect(entry.id);
+    e.preventDefault(); // opens the menu only; the item itself stays closed
     // The keyboard's menu key reports no pointer position: open under the row instead.
     const r = e.currentTarget.getBoundingClientRect();
     const keyboard = e.clientX === 0 && e.clientY === 0;
@@ -236,6 +235,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
                       className="entry-row"
                       aria-current={selectedId === e.id ? 'true' : undefined}
                       aria-haspopup="menu"
+                      data-menu-open={menu?.entry.id === e.id || undefined}
                       onClick={() => onSelect(e.id)}
                       onContextMenu={(ev) => openMenu(ev, e)}
                     >

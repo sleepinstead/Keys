@@ -1965,7 +1965,8 @@ svg.dial-layer {
   transition: background-color 0.12s;
   -webkit-tap-highlight-color: transparent;
 }
-.entry-row:hover {
+.entry-row:hover,
+.entry-row[data-menu-open] {
   background: var(--bg-hover);
 }
 .entry-row[aria-current='true'] {
