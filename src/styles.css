@@ -1183,9 +1183,9 @@ select.input-sm.select,
 .otp[data-success] .otp-cell {
   border-color: var(--good);
   background: color-mix(in srgb, var(--good) 7%, var(--bg));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 14%, transparent);
-  animation: otp-wave 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
-  animation-delay: calc(var(--i) * 45ms);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 10%, transparent);
+  animation: otp-wave 0.4s var(--ease) backwards;
+  animation-delay: calc(var(--i) * 30ms);
 }
 .otp[data-success] .otp-dot {
   background: var(--good);
@@ -1269,7 +1269,7 @@ select.input-sm.select,
 }
 @keyframes otp-wave {
   40% {
-    transform: translateY(-5px) scale(1.04);
+    transform: translateY(-2px);
   }
   100% {
     transform: none;
@@ -5859,4 +5859,70 @@ svg.dial-layer {
 }
 .bulk-delete:not(:disabled) {
   color: var(--danger-text);
+}
+
+/* Switching items: the new one fades in once it's fully loaded. */
+.detail-scroll {
+  animation: detail-in 0.18s var(--ease);
+}
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* First open only: the spinner waits a moment, so quick loads never flash it. */
+.detail-waiting > * {
+  opacity: 0;
+  animation: detail-wait 0.2s var(--ease) 0.25s forwards;
+}
+@keyframes detail-wait {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Recently deleted */
+.trash-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.trash-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+}
+.trash-main {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.purge-dialog .field-label,
+.purge-dialog .form-error {
+  text-align: center;
+}
+.purge-dialog .otp,
+.purge-dialog .pattern {
+  margin: 0 auto;
+}
+
+.trash-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.trash-summary div {
+  display: grid;
+  gap: 2px;
+}
+.trash-summary strong {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.trash-summary span {
+  color: var(--text-3);
+  font-size: 12.5px;
 }

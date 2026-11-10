@@ -46,7 +46,7 @@ export function Dial({ turns, state, size = 176 }: { turns: number; state: DialS
       return () => c.stop();
     }
     if (state === 'success') {
-      const c = animate(rotate, rotate.get() + 200, { duration: 0.8, ease: [0.2, 0, 0, 1] });
+      const c = animate(rotate, rotate.get() + 90, { duration: 0.7, ease: [0.2, 0, 0, 1] });
       return () => c.stop();
     }
     if (state === 'error') {

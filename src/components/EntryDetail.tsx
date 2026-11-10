@@ -5,9 +5,9 @@ import { ArrowLeft, Check, ChevronDown, Copy, ExternalLink, Eye, EyeOff, KeyRoun
 import { api, errorMessage } from '../api.ts';
 import { useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
 import { collapse, popStar, quick } from '../motion.ts';
-import type { Category, Entry } from '../../shared/types.ts';
+import type { Category, Entry, StrengthResult } from '../../shared/types.ts';
 import { FIELD_LABELS, formatDate, hostname, safeHref, timeAgo, TYPE_LABELS } from '../util.ts';
-import { Button, CopyButton, FolderIcon, IconButton, Monogram, SecretText, STRENGTH_TONE, STRENGTH_WORDS, Spinner, Tooltip, useStrength } from './ui.tsx';
+import { Button, CopyButton, FolderIcon, IconButton, Monogram, SecretText, STRENGTH_TONE, STRENGTH_WORDS, Spinner, Tooltip } from './ui.tsx';
 
 const MASK = '••••••••••••';
 
@@ -107,14 +107,30 @@ export function EntryDetail({
   const copy = useCopy();
   const { settings } = useSettings();
   const hideIcons = settings.hideIcons;
-  const strength = useStrength(entry?.type === 'login' ? entry.password : '', entry ? [entry.username, entry.title, hostname(entry.url)] : [], 0);
+  const [strength, setStrength] = useState<StrengthResult | null>(null);
+  const shownId = useRef<string | null>(null);
 
+  // The item on screen stays until the next one (and its strength rating) has fully loaded,
+  // then they swap in one go: no spinner flash, and no badges popping in afterwards.
   useEffect(() => {
     let cancelled = false;
-    api
-      .entry(entryId)
-      .then((e) => !cancelled && setEntry(e))
-      .catch((err) => !cancelled && setError(errorMessage(err)));
+    void (async () => {
+      try {
+        const next = await api.entry(entryId);
+        const rating =
+          next.type === 'login' && next.password
+            ? await api.strength(next.password, [next.username, next.title, hostname(next.url)]).catch(() => null)
+            : null;
+        if (cancelled) return;
+        if (shownId.current !== next.id) setHistoryOpen(false);
+        shownId.current = next.id;
+        setError(null);
+        setEntry(next);
+        setStrength(rating);
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err));
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -129,7 +145,7 @@ export function EntryDetail({
   }
   if (!entry) {
     return (
-      <section className="detail detail-center" aria-busy="true">
+      <section className="detail detail-center detail-waiting" aria-busy="true">
         <Spinner size={18} />
       </section>
     );
@@ -154,16 +170,9 @@ export function EntryDetail({
 
   async function remove() {
     if (!entry) return;
-    const ok = await confirm({
-      title: `Delete ${entry.title}?`,
-      body: 'You won’t be able to recover this item or its password history once it’s deleted.',
-      confirmLabel: 'Delete item',
-      danger: true,
-    });
-    if (!ok) return;
     try {
       await api.deleteEntry(entry.id);
-      toast(`Deleted ${entry.title}`);
+      toast(`Moved ${entry.title} to Recently deleted`);
       onDeleted();
     } catch (err) {
       toast(errorMessage(err), 'error');
@@ -216,7 +225,8 @@ export function EntryDetail({
         </div>
       </div>
 
-      <div className="detail-scroll">
+      {/* Keyed by item: a new item starts at the top with fresh state, and fades in once. */}
+      <div className="detail-scroll" key={entry.id}>
         <div className="detail-layout">
           <header className="hero">
           {!hideIcons[entry.type] && <Monogram title={entry.title} type={entry.type} size="lg" icon={entry.icon} />}

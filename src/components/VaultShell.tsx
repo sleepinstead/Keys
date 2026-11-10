@@ -21,6 +21,7 @@ import { GeneratorView } from './Generator.tsx';
 import { Onboarding } from './Onboarding.tsx';
 import { GettingStarted } from './GettingStarted.tsx';
 import { SettingsView } from './SettingsView.tsx';
+import { TrashView } from './TrashView.tsx';
 import { Sidebar, viewKey } from './Sidebar.tsx';
 import type { Filter, View } from './Sidebar.tsx';
 import { AppMark, EmptyState, IconButton, Kbd } from './ui.tsx';
@@ -115,6 +116,9 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
   const [navOpen, setNavOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [auditCount, setAuditCount] = useState<number | null>(null);
+  const [trashCount, setTrashCount] = useState(0);
+  const refreshTrash = useCallback(() => void api.trash().then((t) => setTrashCount(t.length), () => {}), []);
+  useEffect(refreshTrash, [refreshTrash]);
   const searchRef = useRef<HTMLInputElement>(null);
   const sessionCounter = useRef(0);
   const toast = useToast();
@@ -338,6 +342,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           expiresAt={expiresAt}
           idleMs={settings.autoLockMinutes * 60_000}
           auditCount={auditCount}
+          trashCount={trashCount}
         />
 
         <main className="workspace">
@@ -363,6 +368,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                     setEntries((list) => (list ?? []).filter((e) => e.id !== id));
                     if (selectedRef.current === id) setSelectedId(null);
                     refreshAudit();
+                    refreshTrash();
                   }}
                   categories={categories}
                   onBulkDone={async (deleted) => {
@@ -370,6 +376,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                     if (selectedRef.current && deleted.includes(selectedRef.current)) setSelectedId(null);
                     else setDetailVersion((v) => v + 1);
                     refreshAudit();
+                    refreshTrash();
                   }}
                   onCreate={create}
                   onImport={() => selectView({ kind: 'settings' })}
@@ -379,7 +386,6 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                 <div className="detail-host">
                   {selectedId ? (
                     <EntryDetail
-                      key={selectedId}
                       entryId={selectedId}
                       version={detailVersion}
                       categories={categories}
@@ -389,6 +395,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                         setEntries((list) => (list ?? []).filter((e) => e.id !== selectedId));
                         setSelectedId(null);
                         refreshAudit();
+                        refreshTrash();
                       }}
                       onBack={() => setSelectedId(null)}
                     />
@@ -421,6 +428,16 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                     onEntriesChanged={() => {
                       setSelectedId(null);
                       void loadEntries();
+                      refreshTrash();
+                    }}
+                  />
+                )}
+                {view.kind === 'trash' && (
+                  <TrashView
+                    onChanged={() => {
+                      refreshTrash();
+                      void loadEntries();
+                      refreshAudit();
                     }}
                   />
                 )}

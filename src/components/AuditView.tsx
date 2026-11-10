@@ -140,7 +140,7 @@ function DuplicatesDialog({ open, groups, onClose, onRemoved }: { open: boolean;
       open={open}
       onClose={onClose}
       title="Duplicate logins"
-      description="Each group is one account saved more than once. Keep one copy and remove the rest. Removed logins can’t be recovered."
+      description="Each group is one account saved more than once. Keep one copy and remove the rest. Removed copies go to Recently deleted."
       className="dialog-dupes"
       footer={
         <>

@@ -242,3 +242,57 @@ test('bulk update favourites or moves several items, all or none', async () => {
     ctx.store.close();
   }
 });
+
+test('deleted items go to Recently deleted; permanent deletion needs the password', async () => {
+  const ctx = createApp({ dbFile: ':memory:', allowedOrigins: [] });
+  const server = await new Promise<ReturnType<typeof ctx.app.listen>>((resolve) => {
+    const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  let token = '';
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-keys-request': '1', 'x-keys-session': token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const parsed = (await res.json()) as any;
+    if (parsed.sessionToken) token = parsed.sessionToken;
+    return { status: res.status, body: parsed };
+  };
+  try {
+    await call('POST', '/setup', { password: MASTER });
+    const cats = (await call('GET', '/categories')).body;
+    const work = cats.find((c: any) => c.name === 'Work').id;
+    const a = (await call('POST', '/entries', { type: 'login', title: 'a', password: 'p1', categoryId: work })).body.id;
+    const b = (await call('POST', '/entries', { type: 'login', title: 'b', password: 'p2' })).body.id;
+
+    assert.equal((await call('DELETE', `/entries/${a}`)).status, 200);
+    assert.deepEqual((await call('GET', '/entries')).body.map((e: any) => e.id), [b], 'gone from the list');
+    assert.equal((await call('GET', `/entries/${a}`)).status, 404);
+    const bin = (await call('GET', '/trash')).body;
+    assert.deepEqual(bin.map((e: any) => e.id), [a]);
+    assert.ok(bin[0].deletedAt > 0);
+    assert.equal(bin[0].password, undefined, 'the bin list carries no secrets');
+
+    // Its category is deleted while it's in the bin: it comes back uncategorised.
+    await call('DELETE', `/categories/${work}`);
+    assert.equal((await call('POST', '/trash/restore', { ids: [a] })).status, 200);
+    const back = (await call('GET', `/entries/${a}`)).body;
+    assert.equal(back.categoryId, null);
+    assert.equal(back.password, 'p1');
+
+    await call('POST', '/entries/delete', { ids: [a, b] });
+    assert.equal((await call('POST', '/trash/purge', { ids: [a] })).status, 400, 'needs the password');
+    assert.equal((await call('POST', '/trash/purge', { ids: [a], current: 'wrong' })).status, 401);
+    assert.equal((await call('GET', '/trash')).body.length, 2, 'nothing purged on a wrong password');
+    const live = (await call('POST', '/entries', { type: 'login', title: 'live', password: 'p3' })).body.id;
+    assert.equal((await call('POST', '/trash/purge', { ids: [live], current: MASTER })).status, 404, 'only items in the bin can be purged');
+    assert.equal((await call('POST', '/trash/purge', { all: true, current: MASTER })).body.purged, 2);
+    assert.equal((await call('GET', '/trash')).body.length, 0);
+    assert.equal(ctx.store.all('entries').length, 1, 'purged rows are really gone');
+  } finally {
+    ctx.sessions.dispose();
+    server.close();
+    ctx.store.close();
+  }
+});

@@ -75,6 +75,10 @@ export interface EntrySummary {
   updatedAt: number;
 }
 
+export interface TrashedEntry extends EntrySummary {
+  deletedAt: number;
+}
+
 export interface Category {
   id: string;
   name: string;

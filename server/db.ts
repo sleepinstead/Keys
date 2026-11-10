@@ -11,6 +11,8 @@ export interface Row {
   blob: Uint8Array;
   created_at: number;
   updated_at: number;
+  /** Entries only: when it was moved to Recently deleted, or null. */
+  deleted_at?: number | null;
 }
 
 const MIGRATIONS: string[] = [
@@ -30,9 +32,12 @@ const MIGRATIONS: string[] = [
      created_at INTEGER NOT NULL,
      updated_at INTEGER NOT NULL
    );`,
+  // Recently deleted: an item stays (encrypted, as before) until it's deleted for good.
+  `ALTER TABLE entries ADD COLUMN deleted_at INTEGER;`,
 ];
 
 export type Table = 'entries' | 'categories';
+const columns = (table: Table) => (table === 'entries' ? 'id, blob, created_at, updated_at, deleted_at' : 'id, blob, created_at, updated_at');
 
 /** Stamped into every Keys database (PRAGMA application_id) so files can be recognised. 'KEYS'. */
 export const APP_ID = 0x4b455953;
@@ -175,12 +180,18 @@ export class Store {
   }
 
   all(table: Table): Row[] {
-    return this.db.prepare(`SELECT id, blob, created_at, updated_at FROM ${table} ORDER BY created_at`).all() as unknown as Row[];
+    return this.db.prepare(`SELECT ${columns(table)} FROM ${table} ORDER BY created_at`).all() as unknown as Row[];
   }
 
   get(table: Table, id: string): Row | null {
-    const row = this.db.prepare(`SELECT id, blob, created_at, updated_at FROM ${table} WHERE id = ?`).get(id);
+    const row = this.db.prepare(`SELECT ${columns(table)} FROM ${table} WHERE id = ?`).get(id);
     return (row as unknown as Row | undefined) ?? null;
+  }
+
+  /** Moves an entry into or out of Recently deleted. */
+  setDeleted(id: string, at: number | null): boolean {
+    const res = this.db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?').run(at, id);
+    return Number(res.changes) > 0;
   }
 
   insert(table: Table, row: Row): void {

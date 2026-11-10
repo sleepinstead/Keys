@@ -316,6 +316,34 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
     res.json({ deleted: ids.length });
   });
 
+  // ------------------------------------------------------ recently deleted
+
+  api.get('/trash', (req, res) => {
+    res.json(vault.listTrash(keyFor(req)));
+  });
+
+  api.post('/trash/restore', json, (req, res) => {
+    const key = keyFor(req);
+    const ids = itemIds(req.body?.ids);
+    vault.restoreEntries(key, ids);
+    res.json({ restored: ids.length });
+  });
+
+  /** Deleting for good needs the vault's password or PIN, with the usual lockout. */
+  api.post('/trash/purge', json, async (req, res) => {
+    keyFor(req);
+    const name = CREDENTIAL_LABELS[vault.credential().type];
+    const current = typeof req.body?.current === 'string' ? req.body.current.slice(0, 1024) : '';
+    if (!current) throw new HttpError(400, `Enter your ${name} to delete permanently`);
+    const all = req.body?.all === true;
+    const ids = all ? null : itemIds(req.body?.ids);
+    if (!(await vault.verifyPassword(current))) throw new HttpError(401, `Incorrect ${name}`, 'BAD_PASSWORD');
+    const key = keyFor(req, false); // the session may have locked during the check
+    const targets = ids ?? vault.listTrash(key).map((e) => e.id);
+    if (targets.length) vault.purgeEntries(targets);
+    res.json({ purged: targets.length });
+  });
+
   /** Favourites or moves several items at once, all or none. */
   api.post('/entries/update', json, (req, res) => {
     const key = keyFor(req);
@@ -434,7 +462,7 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
     const checkedAt = Date.now();
     vault.store.transaction(() => {
       for (const t of targets) {
-        if (!vault.store.get('entries', t.id)) continue; // deleted while the lookup was in flight
+        if (!vault.store.get('entries', t.id) || vault.store.get('entries', t.id)!.deleted_at) continue; // deleted while the lookup was in flight
         const current = vault.getEntry(liveKey, t.id);
         // Skip entries whose password changed while the lookup was in flight.
         if (current.password === t.password && results.has(t.id)) {

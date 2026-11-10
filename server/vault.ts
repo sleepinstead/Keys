@@ -15,7 +15,7 @@ import {
 } from './crypto.ts';
 import { HttpError, sanitizeSettings } from './validate.ts';
 import { DEFAULT_SETTINGS, isShortCredential } from '../shared/types.ts';
-import type { Category, CategoryColor, Credential, Entry, EntryData, EntryInput, EntrySummary, Settings } from '../shared/types.ts';
+import type { Category, CategoryColor, Credential, Entry, EntryData, EntryInput, EntrySummary, Settings, TrashedEntry } from '../shared/types.ts';
 
 // These labels keep the app's original name on purpose: they are authenticated into every
 // ciphertext already on disk, so renaming them would make existing vaults undecryptable.
@@ -25,6 +25,21 @@ const entryAad = (id: string) => `vaultx:entry:${id}`;
 const categoryAad = (id: string) => `vaultx:category:${id}`;
 
 const HISTORY_LIMIT = 20;
+
+/** What the list shows: no password, notes or history. */
+const summary = (e: Entry): EntrySummary => ({
+  id: e.id,
+  type: e.type,
+  title: e.title,
+  username: e.username,
+  url: e.url,
+  categoryId: e.categoryId,
+  favorite: e.favorite,
+  icon: e.icon,
+  hasPassword: e.password.length > 0,
+  createdAt: e.createdAt,
+  updatedAt: e.updatedAt,
+});
 const FREE_ATTEMPTS = 5;
 const MAX_LOCKOUT_MS = 15 * 60 * 1000;
 export const MIN_MASTER_LENGTH = 10;
@@ -240,29 +255,52 @@ export class Vault {
     return { ...data, icon: data.icon ?? '', id: row.id, createdAt: row.created_at, updatedAt: row.updated_at };
   }
 
+  /** Live items only: anything in Recently deleted is left out everywhere except the bin itself. */
   listEntries(key: Buffer): Entry[] {
-    return this.store.all('entries').map((row) => this.readEntry(key, row));
+    return this.store
+      .all('entries')
+      .filter((row) => !row.deleted_at)
+      .map((row) => this.readEntry(key, row));
   }
 
   listSummaries(key: Buffer): EntrySummary[] {
-    return this.listEntries(key).map((e) => ({
-      id: e.id,
-      type: e.type,
-      title: e.title,
-      username: e.username,
-      url: e.url,
-      categoryId: e.categoryId,
-      favorite: e.favorite,
-      icon: e.icon,
-      hasPassword: e.password.length > 0,
-      createdAt: e.createdAt,
-      updatedAt: e.updatedAt,
-    }));
+    return this.listEntries(key).map((e) => summary(e));
+  }
+
+  listTrash(key: Buffer): TrashedEntry[] {
+    return this.store
+      .all('entries')
+      .filter((row) => row.deleted_at)
+      .map((row) => ({ ...summary(this.readEntry(key, row)), deletedAt: row.deleted_at! }))
+      .sort((a, b) => b.deletedAt - a.deletedAt);
+  }
+
+  /** Puts items back. One whose category was deleted meanwhile comes back uncategorised. */
+  restoreEntries(key: Buffer, ids: string[]): void {
+    this.store.transaction(() => {
+      for (const id of ids) {
+        const row = this.store.get('entries', id);
+        if (!row?.deleted_at) throw new HttpError(404, 'That item isn’t in Recently deleted');
+        this.store.setDeleted(id, null);
+        const { categoryId } = this.readEntry(key, row);
+        if (categoryId && !this.store.get('categories', categoryId)) this.patchEntryData(key, id, { categoryId: null });
+      }
+    });
+  }
+
+  /** Deletes items for good. Only items already in Recently deleted can be purged. */
+  purgeEntries(ids: string[]): void {
+    this.store.transaction(() => {
+      for (const id of ids) {
+        if (!this.store.get('entries', id)?.deleted_at) throw new HttpError(404, 'That item isn’t in Recently deleted');
+        this.store.delete('entries', id);
+      }
+    });
   }
 
   getEntry(key: Buffer, id: string): Entry {
     const row = this.store.get('entries', id);
-    if (!row) throw new HttpError(404, 'Entry not found');
+    if (!row || row.deleted_at) throw new HttpError(404, 'Entry not found');
     return this.readEntry(key, row);
   }
 
@@ -324,8 +362,11 @@ export class Vault {
     return this.getEntry(key, id);
   }
 
+  /** Moves an item to Recently deleted. */
   deleteEntry(id: string): void {
-    if (!this.store.delete('entries', id)) throw new HttpError(404, 'Entry not found');
+    const row = this.store.get('entries', id);
+    if (!row || row.deleted_at) throw new HttpError(404, 'Entry not found');
+    this.store.setDeleted(id, Date.now());
   }
 
   // ---------------------------------------------------------- categories

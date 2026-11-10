@@ -2,7 +2,7 @@ import { forwardRef, Fragment, useCallback, useEffect, useMemo, useState } from 
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { ArrowDownAZ, AtSign, Check, Folder, ListChecks, ChevronDown, Clock3, ExternalLink, KeyRound, Pencil, Plus, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
-import { useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
+import { useCopy, useSettings, useToast } from '../context.tsx';
 import type { Category, Entry, EntrySummary, EntryType } from '../../shared/types.ts';
 import { hostname, plural, safeHref, TYPE_LABELS } from '../util.ts';
 import { TYPE_ICONS } from './Sidebar.tsx';
@@ -43,7 +43,6 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
 ) {
   const { hideIcons, categoriesEnabled } = useSettings().settings;
   const copy = useCopy();
-  const confirm = useConfirm();
   const toast = useToast();
   const [menu, setMenu] = useState<{ x: number; y: number; entry: EntrySummary; row: HTMLElement } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -116,15 +115,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
       await api.updateEntries(ids, { categoryId });
       return `Moved ${plural(ids.length, 'item')} to ${categories.find((c) => c.id === categoryId)?.name ?? 'no category'}`;
     });
-  const deleteAll = async () => {
-    const ok = await confirm({
-      title: `Delete ${plural(ids.length, 'item')}?`,
-      body: 'You won’t be able to recover these items or their password history once they’re deleted.',
-      confirmLabel: `Delete ${plural(ids.length, 'item')}`,
-      danger: true,
-    });
-    if (ok) void bulk(async () => (await api.deleteEntries(ids), `Deleted ${plural(ids.length, 'item')}`), ids);
-  };
+  const deleteAll = () => void bulk(async () => (await api.deleteEntries(ids), `Moved ${plural(ids.length, 'item')} to Recently deleted`), ids);
 
   const openMenu = (e: MouseEvent<HTMLButtonElement>, entry: EntrySummary) => {
     e.preventDefault(); // opens the menu only; the item itself stays closed
@@ -164,16 +155,9 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
         danger: true,
         separatorBefore: true,
         onSelect: async () => {
-          const ok = await confirm({
-            title: `Delete ${e.title}?`,
-            body: 'You won’t be able to recover this item or its password history once it’s deleted.',
-            confirmLabel: 'Delete item',
-            danger: true,
-          });
-          if (!ok) return;
           try {
             await api.deleteEntry(e.id);
-            toast(`Deleted ${e.title}`);
+            toast(`Moved ${e.title} to Recently deleted`);
             onDeleted(e.id);
           } catch (err) {
             toast(errorMessage(err), 'error');
@@ -371,7 +355,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
               ]}
             />
           )}
-          <IconButton label="Delete" className="bulk-delete" disabled={!chosen.length || busy} onClick={() => void deleteAll()}>
+          <IconButton label="Delete" className="bulk-delete" disabled={!chosen.length || busy} onClick={deleteAll}>
             <Trash2 size={16} />
           </IconButton>
           <IconButton label="Done selecting" onClick={stopSelecting}>

@@ -13,6 +13,7 @@ import type {
   PinStatus,
   Settings,
   StrengthResult,
+  TrashedEntry,
   VaultStatus,
 } from '../shared/types.ts';
 
@@ -111,6 +112,10 @@ export const api = {
   createEntry: (input: EntryInput) => request<Entry>('POST', '/entries', input),
   updateEntry: (entryId: string, input: EntryInput) => request<Entry>('PUT', `/entries/${id(entryId)}`, input),
   updateEntries: (ids: string[], patch: { favorite?: boolean; categoryId?: string | null }) => request<{ updated: number }>('POST', '/entries/update', { ids, ...patch }),
+  trash: () => request<TrashedEntry[]>('GET', '/trash'),
+  restoreTrash: (ids: string[]) => request<{ restored: number }>('POST', '/trash/restore', { ids }),
+  purgeTrash: (ids: string[] | 'all', current: string) =>
+    request<{ purged: number }>('POST', '/trash/purge', ids === 'all' ? { all: true, current } : { ids, current }),
   deleteEntries: (ids: string[]) => request<{ deleted: number }>('POST', '/entries/delete', { ids }),
   deleteEntry: (entryId: string) => request<{ ok: true }>('DELETE', `/entries/${id(entryId)}`),
   setIcon: (entryId: string, icon: string) => request<Entry>('PUT', `/entries/${id(entryId)}/icon`, { icon }),
