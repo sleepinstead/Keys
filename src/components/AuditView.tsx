@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Clock3, Copy as CopyIcon, Radar, RefreshCw, ShieldAlert, ShieldCheck, ShieldX, Zap } from 'lucide-react';
+import { Clock3, Copy as CopyIcon, KeyRound, Radar, RefreshCw, ShieldAlert, ShieldCheck, ShieldX, Zap } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
 import { useSettings, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
@@ -109,6 +109,44 @@ function issueLabel(item: AuditItem, issue: AuditIssue): string {
   return STRENGTH_WORDS[item.score]!;
 }
 
+/**
+ * What the audit is doing while it loads. It's one request, so the checks are listed rather than
+ * ticked off one by one: per-step progress would be invented. Hidden for quick loads, so it never flashes.
+ */
+function AuditLoading({ outdatedDays, breaches }: { outdatedDays: number; breaches: boolean }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setShown(true), 250);
+    return () => window.clearTimeout(t);
+  }, []);
+  if (!shown) return null;
+  const age = outdatedDays >= 365 ? plural(Math.round(outdatedDays / 365), 'year') : plural(Math.round(outdatedDays / 30), 'month');
+  const steps: [ReactNode, string][] = [
+    [<KeyRound size={15} />, 'Decrypting your logins'],
+    [<Zap size={15} />, 'Rating how hard each password is to guess'],
+    [<CopyIcon size={15} />, 'Looking for passwords used more than once'],
+    [<Clock3 size={15} />, `Finding passwords unchanged for ${age}`],
+    ...(breaches ? [[<Radar size={15} />, 'Reading results from your last breach check'] as [ReactNode, string]] : []),
+  ];
+  return (
+    <motion.section className="card audit-loading" role="status" {...fade}>
+      <header>
+        <Spinner size={16} />
+        <h2>Checking your passwords</h2>
+      </header>
+      <ul>
+        {steps.map(([icon, text]) => (
+          <li key={text}>
+            <span aria-hidden="true">{icon}</span>
+            {text}
+          </li>
+        ))}
+      </ul>
+      <p>All of this happens on this computer. Nothing is sent anywhere.</p>
+    </motion.section>
+  );
+}
+
 export function AuditView({ onOpen, onReport }: { onOpen: (id: string) => void; onReport: (r: AuditReport) => void }) {
   const { settings, updateSettings } = useSettings();
   const [report, setReport] = useState<AuditReport | null>(null);
@@ -163,7 +201,7 @@ export function AuditView({ onOpen, onReport }: { onOpen: (id: string) => void; 
   if (!report) {
     return (
       <div className="page page-center" aria-busy={!error}>
-        {error ? <p className="form-error">{error}</p> : <Spinner size={22} />}
+        {error ? <p className="form-error">{error}</p> : <AuditLoading outdatedDays={settings.outdatedDays} breaches={settings.breachCheckEnabled} />}
       </div>
     );
   }

@@ -5639,3 +5639,43 @@ svg.dial-layer {
   background: var(--primary);
   transition: width 0.3s var(--ease);
 }
+
+/* Audit loading: the checks being run, in plain words. */
+.audit-loading {
+  width: min(380px, 100%);
+  padding: 18px 20px;
+}
+.audit-loading header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.audit-loading h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.audit-loading ul {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.audit-loading li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+.audit-loading li span {
+  display: grid;
+  color: var(--text-4);
+}
+.audit-loading p {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 12.5px;
+}

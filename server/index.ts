@@ -16,11 +16,10 @@ const { app, storage, sessions } = createApp({
 });
 
 const server = app.listen(port, host, () => {
+  // In dev, Vite prints the address to open.
+  if (production) console.log(`Keys: http://localhost:${port}`);
   const where = storage.info();
-  console.log(`[keys] database: ${where.isDefault ? path.relative(root, where.path) : where.path}${where.available ? '' : ' (not available: ' + where.error + ')'}`);
-  console.log(
-    production ? `[keys] open http://localhost:${port}` : `[keys] API on http://${host}:${port} (UI: http://localhost:5173)`,
-  );
+  if (!where.available) console.warn(`Database unavailable: ${where.error}`);
 });
 
 function shutdown() {

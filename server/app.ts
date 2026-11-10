@@ -57,7 +57,7 @@ export function createApp(opts: AppOptions) {
       res.status(400).json({ error: 'Malformed JSON' });
     } else {
       // Never echo internal errors (they could contain data); log a generic line only.
-      console.error('[keys] unexpected error:', err instanceof Error ? err.name + ': ' + err.message : 'unknown');
+      console.error('Unexpected error:', err instanceof Error ? err.name + ': ' + err.message : 'unknown');
       res.status(500).json({ error: 'Internal error' });
     }
   });
