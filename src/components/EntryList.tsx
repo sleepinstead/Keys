@@ -1,10 +1,10 @@
-import { forwardRef, Fragment, useCallback, useMemo, useState } from 'react';
+import { forwardRef, Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
-import { ArrowDownAZ, AtSign, ChevronDown, Clock3, ExternalLink, KeyRound, Pencil, Plus, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDownAZ, AtSign, Check, Folder, ListChecks, ChevronDown, Clock3, ExternalLink, KeyRound, Pencil, Plus, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
 import { useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
-import type { Entry, EntrySummary, EntryType } from '../../shared/types.ts';
-import { hostname, safeHref, TYPE_LABELS } from '../util.ts';
+import type { Category, Entry, EntrySummary, EntryType } from '../../shared/types.ts';
+import { hostname, plural, safeHref, TYPE_LABELS } from '../util.ts';
 import { TYPE_ICONS } from './Sidebar.tsx';
 import { Button, ContextMenu, EmptyState, IconButton, Kbd, Menu, Monogram, Tooltip } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
@@ -23,6 +23,9 @@ interface Props {
   onEdit: (entry: Entry) => void;
   onChanged: (entry: Entry) => void;
   onDeleted: (id: string) => void;
+  categories: Category[];
+  /** After a bulk change: reload the list. */
+  onBulkDone: (deleted: string[]) => Promise<void> | void;
   onCreate: (type: EntryType) => void;
   onImport: () => void;
   totalCount: number;
@@ -35,15 +38,93 @@ function subtitle(e: EntrySummary): string {
 }
 
 export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
-  { title, entries, query, onQuery, sort, onSort, selectedId, onSelect, onEdit, onChanged, onDeleted, onCreate, onImport, totalCount, defaultType },
+  { title, entries, query, onQuery, sort, onSort, selectedId, onSelect, onEdit, onChanged, onDeleted, categories, onBulkDone, onCreate, onImport, totalCount, defaultType },
   searchRef,
 ) {
-  const hideIcons = useSettings().settings.hideIcons;
+  const { hideIcons, categoriesEnabled } = useSettings().settings;
   const copy = useCopy();
   const confirm = useConfirm();
   const toast = useToast();
   const [menu, setMenu] = useState<{ x: number; y: number; entry: EntrySummary; row: HTMLElement } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+
+  // Bulk selection: the Select button, ⌘/Ctrl-click to toggle, Shift-click for a range.
+  const [selecting, setSelecting] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const chosen = entries.filter((e) => checked.has(e.id));
+  const inSelection = selecting || checked.size > 0;
+  const stopSelecting = useCallback(() => {
+    setSelecting(false);
+    setChecked(new Set());
+    setAnchor(null);
+  }, []);
+  useEffect(stopSelecting, [title, stopSelecting]);
+  useEffect(() => {
+    if (!inSelection) return;
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.dialog-layer, .menu') && stopSelecting();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [inSelection, stopSelecting]);
+
+  const onRowClick = (ev: MouseEvent<HTMLButtonElement>, entry: EntrySummary) => {
+    const from = anchor ?? (inSelection ? null : selectedId);
+    if (ev.shiftKey && from) {
+      const [a, b] = [entries.findIndex((x) => x.id === from), entries.findIndex((x) => x.id === entry.id)].sort((x, y) => x - y);
+      if (a >= 0) {
+        setChecked((prev) => new Set([...prev, ...entries.slice(a, b + 1).map((x) => x.id)]));
+        setAnchor(entry.id);
+        return;
+      }
+    }
+    if (inSelection || ev.metaKey || ev.ctrlKey) {
+      setChecked((prev) => {
+        // Starting with ⌘-click keeps the item that was open, like Finder.
+        const next = new Set(prev.size === 0 && !selecting && selectedId ? [selectedId] : prev);
+        if (!next.delete(entry.id)) next.add(entry.id);
+        return next;
+      });
+      setAnchor(entry.id);
+      return;
+    }
+    onSelect(entry.id);
+  };
+
+  const bulk = async (run: () => Promise<string>, deleted: string[] = []) => {
+    setBusy(true);
+    try {
+      const message = await run();
+      await onBulkDone(deleted);
+      toast(message);
+      stopSelecting();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ids = chosen.map((e) => e.id);
+  const allFavorite = chosen.length > 0 && chosen.every((e) => e.favorite);
+  const favoriteAll = () =>
+    void bulk(async () => {
+      await api.updateEntries(ids, { favorite: !allFavorite });
+      return allFavorite ? `Removed ${plural(ids.length, 'item')} from favorites` : `Added ${plural(ids.length, 'item')} to favorites`;
+    });
+  const moveAll = (categoryId: string | null) =>
+    void bulk(async () => {
+      await api.updateEntries(ids, { categoryId });
+      return `Moved ${plural(ids.length, 'item')} to ${categories.find((c) => c.id === categoryId)?.name ?? 'no category'}`;
+    });
+  const deleteAll = async () => {
+    const ok = await confirm({
+      title: `Delete ${plural(ids.length, 'item')}?`,
+      body: 'You won’t be able to recover these items or their password history once they’re deleted.',
+      confirmLabel: `Delete ${plural(ids.length, 'item')}`,
+      danger: true,
+    });
+    if (ok) void bulk(async () => (await api.deleteEntries(ids), `Deleted ${plural(ids.length, 'item')}`), ids);
+  };
 
   const openMenu = (e: MouseEvent<HTMLButtonElement>, entry: EntrySummary) => {
     e.preventDefault(); // opens the menu only; the item itself stays closed
@@ -180,6 +261,9 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
             )}
           </div>
           <span className="toolbar-sep" aria-hidden="true" />
+          <IconButton label={inSelection ? 'Done selecting' : 'Select items'} aria-pressed={inSelection} disabled={entries.length === 0} onClick={() => (inSelection ? stopSelecting() : setSelecting(true))}>
+            <ListChecks size={16} />
+          </IconButton>
           <Menu
             label="Sort items"
             heading="Sort by"
@@ -235,10 +319,16 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
                       className="entry-row"
                       aria-current={selectedId === e.id ? 'true' : undefined}
                       aria-haspopup="menu"
+                      aria-pressed={inSelection ? checked.has(e.id) : undefined}
                       data-menu-open={menu?.entry.id === e.id || undefined}
-                      onClick={() => onSelect(e.id)}
+                      onClick={(ev) => onRowClick(ev, e)}
                       onContextMenu={(ev) => openMenu(ev, e)}
                     >
+                      {inSelection && (
+                        <span className="entry-check" aria-hidden="true">
+                          {checked.has(e.id) && <Check size={12} strokeWidth={3} />}
+                        </span>
+                      )}
                       {/* Only logins get a picture; other kinds are plain text rows. */}
                       {!hideIcons[e.type] && <Monogram title={e.title} type={e.type} icon={e.icon} />}
                       <span className="entry-row-text">
@@ -254,6 +344,41 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
           </ul>
         )}
       </div>
+      {inSelection && (
+        <div className="bulk-bar" role="toolbar" aria-label="Selected items">
+          <div className="bulk-count">
+            <strong aria-live="polite">{chosen.length === 0 ? 'Select items' : `${chosen.length} selected`}</strong>
+            <button type="button" className="text-btn" onClick={() => setChecked(chosen.length === entries.length ? new Set() : new Set(entries.map((e) => e.id)))}>
+              {chosen.length === entries.length ? 'Select none' : 'Select all'}
+            </button>
+          </div>
+          <IconButton label={allFavorite ? 'Remove from favorites' : 'Add to favorites'} disabled={!chosen.length || busy} onClick={favoriteAll}>
+            {allFavorite ? <StarOff size={16} /> : <Star size={16} />}
+          </IconButton>
+          {categoriesEnabled && (
+            <Menu
+              label="Move to category"
+              heading="Move to"
+              align="end"
+              trigger={(p) => (
+                <IconButton label="Move to category" disabled={!chosen.length || busy} {...p}>
+                  <Folder size={16} />
+                </IconButton>
+              )}
+              items={[
+                ...categories.map((c) => ({ label: c.name, onSelect: () => moveAll(c.id) })),
+                { label: 'No category', separatorBefore: categories.length > 0, onSelect: () => moveAll(null) },
+              ]}
+            />
+          )}
+          <IconButton label="Delete" className="bulk-delete" disabled={!chosen.length || busy} onClick={() => void deleteAll()}>
+            <Trash2 size={16} />
+          </IconButton>
+          <IconButton label="Done selecting" onClick={stopSelecting}>
+            <X size={16} />
+          </IconButton>
+        </div>
+      )}
       <ContextMenu at={menu} items={menu ? menuItems(menu.entry) : []} label={menu ? `Actions for ${menu.entry.title}` : 'Actions'} onClose={closeMenu} returnTo={menu?.row} />
     </section>
   );

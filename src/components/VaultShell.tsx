@@ -364,6 +364,13 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                     if (selectedRef.current === id) setSelectedId(null);
                     refreshAudit();
                   }}
+                  categories={categories}
+                  onBulkDone={async (deleted) => {
+                    await loadEntries();
+                    if (selectedRef.current && deleted.includes(selectedRef.current)) setSelectedId(null);
+                    else setDetailVersion((v) => v + 1);
+                    refreshAudit();
+                  }}
                   onCreate={create}
                   onImport={() => selectView({ kind: 'settings' })}
                   totalCount={entries?.length ?? -1}

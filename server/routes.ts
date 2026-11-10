@@ -301,15 +301,41 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
     res.json({ ok: true });
   });
 
-  /** Removes several items at once (duplicate clean-up), all or none. */
+  const itemIds = (raw: unknown): string[] => {
+    if (!Array.isArray(raw) || raw.length === 0 || raw.length > 10_000 || !raw.every((x) => typeof x === 'string' && x.length <= 64)) {
+      throw new HttpError(400, 'Choose some items first');
+    }
+    return raw;
+  };
+
+  /** Removes several items at once, all or none. */
   api.post('/entries/delete', json, (req, res) => {
     keyFor(req);
-    const ids: unknown = req.body?.ids;
-    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 10_000 || !ids.every((x) => typeof x === 'string' && x.length <= 64)) {
-      throw new HttpError(400, 'Choose the items to remove');
-    }
+    const ids = itemIds(req.body?.ids);
     vault.store.transaction(() => ids.forEach((id) => vault.deleteEntry(id)));
     res.json({ deleted: ids.length });
+  });
+
+  /** Favourites or moves several items at once, all or none. */
+  api.post('/entries/update', json, (req, res) => {
+    const key = keyFor(req);
+    const ids = itemIds(req.body?.ids);
+    const body = req.body as Record<string, unknown>;
+    const favorite = body.favorite;
+    const moving = Object.hasOwn(body, 'categoryId');
+    const categoryId = body.categoryId;
+    if (favorite !== undefined && typeof favorite !== 'boolean') throw new HttpError(400, 'Invalid favourite value');
+    if (moving && categoryId !== null && (typeof categoryId !== 'string' || categoryId.length > 64)) throw new HttpError(400, 'Invalid category');
+    if (favorite === undefined && !moving) throw new HttpError(400, 'Nothing to change');
+    vault.store.transaction(() => {
+      for (const id of ids) {
+        const input = sanitizeEntryInput(vault.getEntry(key, id));
+        if (favorite !== undefined) input.favorite = favorite;
+        if (moving) input.categoryId = categoryId as string | null;
+        vault.updateEntry(key, id, input);
+      }
+    });
+    res.json({ updated: ids.length });
   });
 
   // Sets only the picture. Not a user edit, so "recently edited" order stays the same.

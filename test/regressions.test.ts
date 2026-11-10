@@ -203,3 +203,42 @@ test('bulk delete needs a session and removes all or nothing', async () => {
     ctx.store.close();
   }
 });
+
+test('bulk update favourites or moves several items, all or none', async () => {
+  const ctx = createApp({ dbFile: ':memory:', allowedOrigins: [] });
+  const server = await new Promise<ReturnType<typeof ctx.app.listen>>((resolve) => {
+    const s = ctx.app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  let token = '';
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', 'x-keys-request': '1', 'x-keys-session': token },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const parsed = (await res.json()) as any;
+    if (parsed.sessionToken) token = parsed.sessionToken;
+    return { status: res.status, body: parsed };
+  };
+  try {
+    await call('POST', '/setup', { password: MASTER });
+    const work = (await call('GET', '/categories')).body.find((c: any) => c.name === 'Work').id;
+    const a = (await call('POST', '/entries', { type: 'login', title: 'a', password: 'p1', notes: 'keep me' })).body.id;
+    const b = (await call('POST', '/entries', { type: 'login', title: 'b', password: 'p2' })).body.id;
+    assert.equal((await call('POST', '/entries/update', { ids: [a, b] })).status, 400, 'nothing to change');
+    assert.equal((await call('POST', '/entries/update', { ids: [a, 'missing'], favorite: true })).status, 404);
+    assert.equal((await call('GET', `/entries/${a}`)).body.favorite, false, 'a failed batch changes nothing');
+    assert.equal((await call('POST', '/entries/update', { ids: [a, b], favorite: true, categoryId: work })).status, 200);
+    const after = (await call('GET', `/entries/${a}`)).body;
+    assert.equal(after.favorite, true);
+    assert.equal(after.categoryId, work);
+    assert.equal(after.notes, 'keep me', 'other fields untouched');
+    assert.equal(after.history.length, 0, 'no password history entry added');
+    await call('POST', '/entries/update', { ids: [b], categoryId: null });
+    assert.equal((await call('GET', `/entries/${b}`)).body.categoryId, null);
+  } finally {
+    ctx.sessions.dispose();
+    server.close();
+    ctx.store.close();
+  }
+});
