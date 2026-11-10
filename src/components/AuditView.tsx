@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Clock3, Copy as CopyIcon, KeyRound, Radar, RefreshCw, ShieldAlert, ShieldCheck, ShieldX, Zap } from 'lucide-react';
+import { Clock3, Copy as CopyIcon, KeyRound, Radar, RefreshCw, ShieldAlert, ShieldX, Zap } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
 import { useSettings, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
@@ -281,7 +281,25 @@ export function AuditView({ onOpen, onReport }: { onOpen: (id: string) => void; 
             <p className="audit-explain">{filter === 'all' ? 'Worst first. Select an item to fix it.' : ISSUES.find((i) => i.key === filter)!.explain}</p>
           </div>
           {shown.length === 0 ? (
-            <EmptyState icon={<ShieldCheck size={22} />} title={filter === 'all' ? 'Nothing to fix' : `No ${ISSUES.find((i) => i.key === filter)!.label.toLowerCase()} passwords`} />
+            <EmptyState
+              title={totals.logins === 0 ? 'No logins to check yet' : filter === 'all' ? 'Nothing to fix' : `No ${ISSUES.find((i) => i.key === filter)!.label.toLowerCase()} passwords`}
+            >
+              <p>
+                {totals.logins === 0
+                  ? 'Logins with a password show up here once you add them.'
+                  : filter === 'all'
+                    ? totals.logins === 1
+                      ? 'Your login has a strong, unique, recently changed password.'
+                      : `All ${totals.logins} logins have strong, unique, recently changed passwords.`
+                    : totals.logins === 1
+                      ? 'Your login isn’t flagged for this.'
+                      : `None of your ${totals.logins} logins are flagged for this.`}
+                {totals.logins > 0 &&
+                  totals.unchecked > 0 &&
+                  (filter === 'all' || filter === 'breached') &&
+                  (totals.logins === 1 ? ' Run a breach check to see if it appears in a known leak.' : ' Run a breach check to see if any appear in known leaks.')}
+              </p>
+            </EmptyState>
           ) : (
             <ul className="group audit-list" key={filter}>
               {shown.map((item) => (
