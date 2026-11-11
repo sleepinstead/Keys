@@ -3,7 +3,6 @@ dist
 .DS_Store
 .claude
 .git
-tests/
 .impeccable/
 *.tsbuildinfo
 .env*
@@ -26,4 +25,4 @@ Thumbs.db
 *.pem
 *.key
 extension/*.crx
-tests/test/
+test/
