@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { AnimatePresence, motion, useAnimate } from 'motion/react';
-import { Check, Database, Eye, EyeOff, Grid3x3, KeyRound, Lock, ShieldCheck, Sparkles, WholeWord } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Asterisk, Check, CloudOff, Database, Eye, EyeOff, Grid3x3, Hash, HardDrive, KeyRound, Lock, ShieldCheck, Sparkles, WholeWord } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { api, errorMessage, LOCK_EVENT } from '../api.ts';
 import { collapse, dialog, fade } from '../motion.ts';
 import { encodePattern, passphraseProblem, passphraseWords } from '../../shared/credential.ts';
 import { generatePassword, isWeakPin } from '../../shared/generator.ts';
 import type { VaultStatus } from '../../shared/types.ts';
-import { CREDENTIAL_NAMES, CredentialPicker, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
+import { CREDENTIAL_NAMES, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
 import { Dial } from './Dial.tsx';
 import { StorageDialog } from './StorageDialog.tsx';
 import type { StorageMode } from './StorageDialog.tsx';
 import type { DialState } from './Dial.tsx';
-import { Button, IconButton, OtpInput, StrengthMeter, useStrength } from './ui.tsx';
+import { AppMark, Button, IconButton, OtpInput, Segmented, StrengthMeter, useStrength } from './ui.tsx';
 
 export { PinWarning } from './credential.tsx';
 
@@ -113,6 +114,8 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
   const pinVault = status.credential.type === 'pin' ? status.credential.length : null;
   const [choice, setChoice] = useState<CredentialChoice>({ type: 'password', pinLength: 6 });
   const [storageMode, setStorageMode] = useState<StorageMode | null>(null);
+  /** Setup is three steps: welcome, choose how to unlock, create it. */
+  const [step, setStep] = useState(0);
   const [quick, setQuick] = useState(status.pin);
   const [method, setMethod] = useState<'pin' | 'primary'>(!creating && (vaultKind === 'password' || vaultKind === 'passphrase') && status.pin?.available ? 'pin' : 'primary');
   const [password, setPassword] = useState('');
@@ -224,6 +227,12 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
       () => window.setTimeout(() => setPattern([]), 700),
     );
 
+  function goTo(next: number) {
+    setError(null);
+    if (next < 2) choose(choice); // going back clears anything half-typed
+    setStep(next);
+  }
+
   function choose(c: CredentialChoice) {
     setChoice(c);
     setPassword('');
@@ -258,7 +267,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
   const name = CREDENTIAL_NAMES[kind];
 
   const lede = creating
-    ? `Choose how you’ll unlock. Whatever you pick encrypts everything here and can’t be recovered.`
+    ? 'Choose how you’ll unlock. It can’t be recovered if you forget it.'
     : kind === 'pin'
       ? `Enter your ${otpLength}-digit PIN to unlock.`
       : kind === 'pattern'
@@ -267,27 +276,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
           ? `Enter your ${name}. PIN unlock comes back once you’ve used it.`
           : `Enter your ${name} to unlock.`;
 
-  return (
-    <main className="lock">
-      <Backdrop />
-      <div className="lock-overlay" />
-      <div className="lock-center">
-        <motion.section ref={card} className="lock-card" role="dialog" aria-modal="true" aria-labelledby="lock-title" aria-describedby="lock-lede" {...dialog}>
-          <Dial turns={turns} state={dialState} size={creating ? 150 : 176} />
-          <h1 id="lock-title" className="lock-title">
-            {creating ? 'Get started' : 'Welcome back'}
-          </h1>
-          <p id="lock-lede" className="lock-lede">
-            {lede}
-          </p>
-
-          {creating && (
-            <div className="lock-tabs">
-              <CredentialPicker value={choice} onChange={choose} />
-            </div>
-          )}
-
-          {kind === 'pin' ? (
+  const formBlock = kind === 'pin' ? (
             <form key={`pin-${otpLength}`} className="lock-form" onSubmit={submit}>
               {creating ? (
                 <>
@@ -331,14 +320,12 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                     />
                   </div>
                   <ul className="checklist">
-                    <li data-ok={pinComplete || undefined}>{otpLength} digits</li>
                     <li data-ok={(pinComplete && !pinWeak) || undefined} data-bad={pinWeak || undefined}>
                       {pinWeak ? 'Too easy to guess: avoid patterns, repeats and years' : 'Not an obvious one like 1234, 0000 or a year'}
                     </li>
                     <li data-ok={pinMatches || undefined}>Both entries match</li>
                   </ul>
-                  <PinWarning length={otpLength!} />
-                  <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} disabled={!canCreate || locked}>
+                  <Button type="submit" variant="primary" size="lg" className="btn-block lock-submit" loading={busy} disabled={!canCreate || locked}>
                     Set up
                   </Button>
                 </>
@@ -427,11 +414,10 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                   <AnimatePresence initial={false}>
                     {suggested && (
                       <motion.div className="collapse" {...collapse}>
-                        <div className="suggestion">
-                          <span className="suggestion-label">Suggested {name}</span>
-                          <p className="suggestion-value">{suggested}</p>
-                          <p className="suggestion-note">Write it down or memorise it before you continue.</p>
-                        </div>
+                        {/* Too long for the field to show whole, so it's spelled out here in one compact line. */}
+                        <p className="suggestion-note">
+                          <span className="suggestion-inline">{suggested}</span> Write it down before you continue.
+                        </p>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -482,12 +468,13 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                 </>
               )}
 
-              <Button type="submit" variant="primary" size="lg" className="btn-block" loading={busy} disabled={!canSubmit}>
+              <Button type="submit" variant="primary" size="lg" className="btn-block lock-submit" loading={busy} disabled={!canSubmit}>
                 {creating ? 'Set up' : 'Unlock'}
               </Button>
             </form>
-          )}
+          );
 
+  const statusBlock = (
           <div id="lock-status" className="lock-status" aria-live="assertive">
             <AnimatePresence mode="wait" initial={false}>
               {verified ? (
@@ -510,6 +497,58 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
               ) : null}
             </AnimatePresence>
           </div>
+  );
+
+  const storageDialog = (
+          <StorageDialog
+            mode={storageMode}
+            storage={status.storage}
+            credential={status.initialized ? status.credential : null}
+            onClose={() => setStorageMode(null)}
+            onDone={() => {
+              setStorageMode(null);
+              window.dispatchEvent(new Event(LOCK_EVENT));
+            }}
+          />
+  );
+
+  if (creating) {
+    return (
+      <Onboarding
+        step={step}
+        onStep={goTo}
+        choice={choice}
+        onChoose={choose}
+        storage={status.storage}
+        onChangeStorage={() => setStorageMode('connect')}
+        locked={locked || busy || verified}
+        turns={turns}
+        dialState={dialState}
+        form={formBlock}
+        statusLine={statusBlock}
+        storageDialog={storageDialog}
+        cardRef={card}
+      />
+    );
+  }
+
+  return (
+    <main className="lock">
+      <Backdrop />
+      <div className="lock-overlay" />
+      <div className="lock-center">
+        <motion.section ref={card} className="lock-card" role="dialog" aria-modal="true" aria-labelledby="lock-title" aria-describedby="lock-lede" {...dialog}>
+          <Dial turns={turns} state={dialState} size={176} />
+          <h1 id="lock-title" className="lock-title">
+            Welcome back
+          </h1>
+          <p id="lock-lede" className="lock-lede">
+            {lede}
+          </p>
+
+          {formBlock}
+
+          {statusBlock}
 
           {!creating && (vaultKind === 'password' || vaultKind === 'passphrase') && quick?.available && (
             <button
@@ -538,18 +577,254 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
               <span className="lock-db-change">Change</span>
             </button>
           </div>
-          <StorageDialog
-            mode={storageMode}
-            storage={status.storage}
-            credential={status.initialized ? status.credential : null}
-            onClose={() => setStorageMode(null)}
-            onDone={() => {
-              setStorageMode(null);
-              window.dispatchEvent(new Event(LOCK_EVENT));
-            }}
-          />
+          {storageDialog}
         </motion.section>
       </div>
+    </main>
+  );
+}
+
+const STEPS = ['Welcome', 'Choose how to unlock', 'Create it'];
+
+/** Three segments: done ones full, the current one filling in. */
+function StepProgress({ step }: { step: number }) {
+  return (
+    <span className="step-progress" role="progressbar" aria-label="Setup progress" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step + 1} aria-valuetext={`Step ${step + 1} of ${STEPS.length}`}>
+      {STEPS.map((label, i) => (
+        <span key={label} className="step-progress-seg" data-state={i < step ? 'done' : i === step ? 'current' : undefined} />
+      ))}
+    </span>
+  );
+}
+
+/** Points on the orbit above the stage dial (0° = top, clockwise), in the dial's 200-unit space. */
+function orbitPoint(deg: number, r: number) {
+  const a = ((deg - 90) * Math.PI) / 180;
+  return [100 + r * Math.cos(a), 100 + r * Math.sin(a)] as const;
+}
+function orbitArc(from: number, to: number, r = 96) {
+  const [x1, y1] = orbitPoint(from, r);
+  const [x2, y2] = orbitPoint(to, r);
+  return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
+}
+
+/** First run, full screen: a short welcome, the choice of password or PIN, then creating it. */
+function Onboarding({
+  step,
+  onStep,
+  choice,
+  onChoose,
+  storage,
+  onChangeStorage,
+  locked,
+  turns,
+  dialState,
+  form,
+  statusLine,
+  storageDialog,
+  cardRef,
+}: {
+  step: number;
+  onStep: (n: number) => void;
+  choice: CredentialChoice;
+  onChoose: (c: CredentialChoice) => void;
+  storage: VaultStatus['storage'];
+  onChangeStorage: () => void;
+  locked: boolean;
+  turns: number;
+  dialState: DialState;
+  form: ReactNode;
+  statusLine: ReactNode;
+  storageDialog: ReactNode;
+  cardRef: React.RefObject<HTMLDivElement | null> | ((el: HTMLDivElement | null) => void) | React.Ref<HTMLDivElement>;
+}) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  const first = useRef(true);
+  // Each step announces itself and takes focus, except the very first paint.
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (step < 2) heading.current?.focus();
+  }, [step]);
+  const fileName = storage.path.split(/[\\/]/).pop();
+  const isPin = choice.type === 'pin';
+
+  return (
+    <main className="onboard">
+      {/* The stage: Keys' own dial, large. It turns a quarter for each step and a tick per key typed,
+          and the orbit above it tracks progress through setup. */}
+      <div className="onboard-stage" aria-hidden="true">
+        <div className="onboard-brand">
+          <AppMark size="sm" />
+          <span className="wordmark">Keys</span>
+        </div>
+        <div className="onboard-dial">
+          <svg className="onboard-orbit" viewBox="0 0 200 200">
+            <path className="onboard-orbit-track" d={orbitArc(-48, 48)} />
+            <motion.path
+              className="onboard-orbit-fill"
+              d={orbitArc(-48, 48)}
+              initial={false}
+              animate={{ pathLength: step / (STEPS.length - 1) }}
+              transition={{ duration: 0.6, ease: [0.2, 0, 0, 1] }}
+            />
+            {STEPS.map((label, i) => {
+              const [x, y] = orbitPoint(-48 + i * 48, 96);
+              const [lx, ly] = orbitPoint(-48 + i * 48, 106);
+              return (
+                <g key={label} className="onboard-node" data-state={i < step ? 'done' : i === step ? 'current' : undefined}>
+                  <circle cx={x} cy={y} r={i === step ? 3.2 : 2.2} />
+                  <text x={lx} y={ly} textAnchor="middle">{String(i + 1).padStart(2, '0')}</text>
+                </g>
+              );
+            })}
+          </svg>
+          <Dial turns={turns + step * 15} state={dialState} size={200} />
+        </div>
+        <p className="onboard-stage-caption">
+          <ShieldCheck size={13} aria-hidden="true" />
+          AES-256 · Argon2id · stays on this computer
+        </p>
+      </div>
+
+      <section className="onboard-main">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={step}
+            ref={cardRef as React.Ref<HTMLDivElement>}
+            className="onboard-panel"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6, transition: { duration: 0.12 } }}
+            transition={{ duration: 0.28, ease: [0.2, 0, 0, 1] }}
+          >
+            {step === 0 && (
+              <>
+                <p className="onboard-eyebrow"><StepProgress step={0} />Welcome to Keys</p>
+                <h1 ref={heading} tabIndex={-1} className="onboard-title">
+                  Your passwords, kept on this computer.
+                </h1>
+                <p className="onboard-lede">Keys keeps your logins, notes and codes safe in one encrypted file. Setup takes a minute.</p>
+                <ul className="onboard-points">
+                  <li>
+                    <span className="tile-icon"><Lock size={17} /></span>
+                    <span>
+                      <strong>Encrypted before it’s saved</strong>
+                      <span>Only your password or PIN can open it.</span>
+                    </span>
+                  </li>
+                  <li>
+                    <span className="tile-icon"><HardDrive size={17} /></span>
+                    <span>
+                      <strong>One file you control</strong>
+                      <span>
+                        Saved as <code>{fileName}</code>.{' '}
+                        <button type="button" className="onboard-inline-btn" onClick={onChangeStorage}>
+                          Use a different file
+                        </button>
+                      </span>
+                    </span>
+                  </li>
+                  <li>
+                    <span className="tile-icon"><CloudOff size={17} /></span>
+                    <span>
+                      <strong>No account, no cloud</strong>
+                      <span>Nothing leaves this computer.</span>
+                    </span>
+                  </li>
+                </ul>
+                <div className="onboard-actions">
+                  <Button variant="primary" size="lg" onClick={() => onStep(1)} iconRight={<ArrowRight size={16} />} autoFocus>
+                    Get started
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {step === 1 && (
+              <>
+                <p className="onboard-eyebrow"><StepProgress step={1} />Choose how to unlock</p>
+                <h1 ref={heading} tabIndex={-1} className="onboard-title">
+                  How will you unlock Keys?
+                </h1>
+                <p className="onboard-lede">You’ll use it every time Keys locks. It can’t be recovered if you forget it.</p>
+                <div className="onboard-options" role="radiogroup" aria-label="Unlock with">
+                  {(
+                    [
+                      { type: 'password', icon: <Asterisk size={18} />, title: 'Password', badge: 'Strongest', tone: 'good', text: '10 or more characters. Best if you keep anything important here.' },
+                      { type: 'pin', icon: <Hash size={18} />, title: 'PIN', badge: choice.pinLength === 4 && isPin ? 'Weakest' : 'Weaker', tone: choice.pinLength === 4 && isPin ? 'bad' : 'warn', text: 'Quick to type, but easy to crack if someone copies your file.' },
+                    ] as const
+                  ).map((o) => (
+                    <button
+                      key={o.type}
+                      type="button"
+                      role="radio"
+                      aria-checked={choice.type === o.type}
+                      className="onboard-option"
+                      onClick={() => onChoose({ ...choice, type: o.type })}
+                    >
+                      <span className="tile-icon">{o.icon}</span>
+                      <span className="onboard-option-text">
+                        <span className="onboard-option-title">
+                          {o.title}
+                          <span className="badge" data-tone={o.tone}>{o.badge}</span>
+                        </span>
+                        <span className="onboard-option-desc">{o.text}</span>
+                      </span>
+                      <span className="onboard-radio" aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+                <AnimatePresence initial={false}>
+                  {isPin && (
+                    <motion.div className="collapse" {...collapse}>
+                      <div className="onboard-pin-length">
+                        <span className="field-label">PIN length</span>
+                        <Segmented
+                          label="PIN length"
+                          size="sm"
+                          value={String(choice.pinLength) as '4' | '6'}
+                          onChange={(v) => onChoose({ ...choice, pinLength: Number(v) as 4 | 6 })}
+                          options={[
+                            { value: '6', label: '6 digits' },
+                            { value: '4', label: '4 digits' },
+                          ]}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <div className="onboard-actions">
+                  <Button variant="ghost" size="lg" onClick={() => onStep(0)} icon={<ArrowLeft size={16} />}>
+                    Back
+                  </Button>
+                  <Button variant="primary" size="lg" onClick={() => onStep(2)} iconRight={<ArrowRight size={16} />}>
+                    Continue
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {step === 2 && (
+              <>
+                <p className="onboard-eyebrow"><StepProgress step={2} />Create it</p>
+                <h1 className="onboard-title">{isPin ? `Create a ${choice.pinLength}-digit PIN` : 'Create your master password'}</h1>
+                <p className="onboard-lede">{isPin ? 'Avoid anything obvious like 1234, repeats or a year.' : 'Make it long and memorable, or let Keys suggest one. Write it down somewhere safe.'}</p>
+                {form}
+                {statusLine}
+                <div className="onboard-actions onboard-actions-back">
+                  <Button variant="ghost" onClick={() => onStep(1)} disabled={locked} icon={<ArrowLeft size={16} />}>
+                    Back
+                  </Button>
+                </div>
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </section>
+      {storageDialog}
     </main>
   );
 }

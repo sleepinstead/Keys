@@ -34,7 +34,7 @@ function describe(choice: CredentialChoice): { text: string; strength: string; t
       return { text: 'Four or more words. Easy to remember, hard to guess.', strength: 'Strong', tone: 'good' };
     case 'pin':
       return {
-        text: 'Quick to type, but far easier to crack.',
+        text: 'Easy to crack if someone copies your file.',
         strength: choice.pinLength === 6 ? 'Weaker' : 'Weakest',
         tone: choice.pinLength === 4 ? 'bad' : 'warn',
       };
@@ -83,9 +83,8 @@ export function PinWarning({ length, pattern }: { length?: number; pattern?: boo
     <div className="notice notice-warn" role="note">
       <TriangleAlert size={16} aria-hidden="true" />
       <p>
-        <strong>{pattern ? 'A pattern' : 'A PIN'} is quicker but far easier to crack.</strong> Someone who copies your data file could try every{' '}
-        {pattern ? 'possible pattern within hours' : `${length}-digit PIN ${length === 4 ? 'in under an hour' : length === 6 ? 'within days' : 'within months'}`}. Use a
-        password or passphrase if you keep anything important here.
+        <strong>Easier to crack.</strong> Anyone with a copy of your file could try every{' '}
+        {pattern ? 'pattern within hours' : `${length}-digit PIN ${length === 4 ? 'in under an hour' : length === 6 ? 'within days' : 'within months'}`}.
       </p>
     </div>
   );
