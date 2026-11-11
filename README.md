@@ -1,112 +1,85 @@
 # Keys
 
-An offline-first password manager. Everything is encrypted on your machine and stored in one local SQLite file; nothing goes to a cloud service. Only two features use the internet: website icons for logins (on by default; Settings → Icons → Hide icons in Logins stops them) and the opt-in breach check.
+Keys is a password manager that runs on your own computer. Your passwords are encrypted and saved in a single file that you control. Nothing is sent to a cloud service, and there's no account to sign up for.
 
-## Run it
+I built it for people who want a simple, private place for their passwords without trusting a third party.
 
-Requires Node.js 24.7 or newer (it uses Node's built-in `node:sqlite` and `crypto.argon2`, so there are no native modules to compile).
+![Keys main screen](docs/screenshots/main.png)
+
+## What it does
+
+- **Stores four kinds of items:** logins, secure notes, API keys and recovery codes. You can sort them into categories and mark favorites.
+- **Generates strong passwords**, passphrases and PINs.
+- **Runs a security audit** that flags weak, reused, old and breached passwords.
+- **Checks for breaches (optional)** with Have I Been Pwned. Your passwords never leave your computer.
+- **Unlocks your way:** with a password, a passphrase, a PIN or a pattern. You can also add a quick-unlock PIN for after Keys auto-locks.
+- **Keeps a recycle bin:** deleted items go to Recently deleted, so you can bring them back.
+- **Remembers old passwords:** each item keeps its last 20.
+- **Imports and exports:** import from Chrome, Firefox, Safari, 1Password, LastPass and Bitwarden. Export to an encrypted backup, JSON or CSV.
+- **Works from the keyboard:** press `⌘K` to search, `N` for a new item, `⌘⇧L` to lock.
+- **Has light and dark themes**, or follows your system.
+
+## Built with
+
+- React, TypeScript and Vite for the app
+- Node.js and Express for the local server
+- SQLite (built into Node) for storage
+- Argon2id and AES-256-GCM for encryption
+
+## Getting started
+
+You need **Node.js 24.7 or newer**.
 
 ```bash
 npm install
 npm run build
-npm start            # http://localhost:5174
+npm start
 ```
 
-For development (Vite on :5173 with hot reload, API on :5174):
+Then open http://localhost:5174 and create your vault.
 
-```bash
-npm run dev
-```
+To work on the code with live reload, run `npm run dev`. The app opens at http://localhost:5173. Run the tests with `npm test`.
 
-```bash
-npm test             # crypto, generator, audit, CSV and full API tests
-npm run typecheck
-```
+## Where your data lives
 
-## Where data lives
+Everything is stored in one SQLite file. By default that's `Keys.sqlite` in your app data folder (`~/Library/Application Support/Keys` on macOS).
 
-Everything Keys stores is in **one SQLite file**, and you choose where it lives. Out of the box it's `Keys.sqlite` in your per-user app folder (`~/Library/Application Support/Keys` on macOS); under **Settings → Database** you can put it anywhere this device can reach: any folder, iCloud Drive, Google Drive (with the file set to stay downloaded), a USB drive.
+You can move it anywhere from **Settings → Database**: another folder, iCloud Drive, Google Drive or a USB drive. If you keep it in a cloud folder, only open it on one device at a time.
 
-- **Connect a database:** open a Keys file you already have. Keys locks and switches to it.
-- **Move this database:** copy everything to a new location and keep working from there. The old file is left untouched.
-- **New empty database:** download an empty database (all tables, no data) to place anywhere and connect later, or on macOS create one directly in a folder you pick.
-- **Erase this database:** permanently deletes everything in the open file (it needs your password or PIN) and returns to setup.
-- **Built-in location:** switch back to that default `Keys.sqlite`.
-
-On macOS each option has a **Browse** button that opens the normal Finder dialog; anywhere else, paste the file's full path (`~/…` and `file://` links work). Every change of file needs the current database's master password or PIN, with the usual lockout after repeated mistakes.
-
-Keys remembers only the file's *location*, in a small pointer file outside the project: `~/Library/Application Support/Keys/location.json` on macOS (`%APPDATA%\Keys` on Windows, `~/.config/keys` on Linux). Delete it to go back to the built-in location. Keys never creates or overwrites a file it was pointed at: if the file is missing (say iCloud hasn't downloaded it yet), the app says so and offers Try again, Choose another file or the built-in database. A file is only accepted if it's an empty SQLite file or has Keys' tables, and every Keys database is stamped with its own SQLite `application_id`.
-
-- Items, categories, password history, breach results, settings (including the generator's last-used options) and unlock-throttling state are all rows in that file, so they travel with it.
-- SQLite runs in rollback-journal mode, so there are no `-wal`/`-shm` side files to sync; a `-journal` file appears only during a write.
-- The browser keeps no vault data: no localStorage or IndexedDB and no cookies. Each tab holds only the session token in `sessionStorage`, which is meaningless after a lock or restart.
-- Tests use an in-memory database or throwaway temp folders and never touch your database or pointer file.
-
-**Cloud folders:** open the database from one device at a time. Two devices writing the same file at once can leave sync conflicts, and SQLite can't lock a file across machines.
-
-To back up, use an encrypted export (below) or copy the database file while Keys is stopped. `KEYS_PORT` changes the port.
-
-## What it does
-
-- **Item types:** logins, secure notes, API keys and recovery codes, each with categories, favorites and extra (optionally hidden) fields.
-- **Recently deleted:** deleting an item moves it to a bin you can restore from. Deleting from the bin for good needs your password or PIN.
-- **Password history:** changing a password keeps the previous 20 in that item.
-- **Generator:** random passwords (8–128 characters, character sets, look-alike exclusion), passphrases from the EFF 7,776-word list (3–12 words, separator, capitals, a digit), and PINs (4–12 digits, never obvious ones like 1234 or 1212). All with unbiased Web Crypto randomness. The setup screen can suggest a passphrase for your master password.
-- **Vault credential:** when creating the vault you choose how it unlocks: a password, a passphrase (4+ words), a 4 or 6-digit PIN (entered in one-digit-per-box OTP fields) or a pattern on a 3×3 dot grid. You can switch kinds later in Settings. PINs and patterns show a clear warning: see the security model.
-- **PIN quick unlock (optional, password vaults):** a 4 or 6-digit PIN to reopen the vault after it auto-locks.
-- **Security audit:** flags weak (zxcvbn score ≤ 2), reused, old (configurable), and breached passwords, with a health score.
-- **Website icons (on by default):** each login with a website shows that site's icon. Keys asks the site itself (its page, `/apple-touch-icon.png` or `/favicon.ico`), never a third-party icon service, and refuses local or private network addresses. The icon is resized to a 128 px PNG and stored encrypted inside the item. Upload your own or remove it from the item editor; or hide icons for any kind of item under Settings → Icons (logins show icons by default, other kinds don't). Any item can get a custom icon: pick one of the built-in icons on a coloured tile, or upload an image.
-- **Breach check (opt-in):** Have I Been Pwned k-anonymity range API with response padding. Only the first 5 hex characters of each password's SHA-1 leave the machine.
-- **Import:** Keys exports (including ones made under the old name, VaultX), Bitwarden JSON, and CSV from Chrome, Firefox, Safari, 1Password, LastPass and Bitwarden. Duplicates are skipped.
-- **Keyboard first:** `⌘K` searches items and runs commands, `/` filters the list, `N` adds an item, `E` edits, `⌘↵` saves, `⌘⇧L` locks.
-- **Themes:** light, dark or follow the system (saved in the vault). Motion respects reduced-motion settings.
-- **Export:** encrypted Keys file (Argon2id + AES-256-GCM, own password), or plaintext JSON/CSV after a warning. Every export re-asks for the master password.
+To back up, make an encrypted export, or copy the file while Keys is stopped.
 
 ## Browser extension
 
-The `extension` folder is a Keys extension for Chrome, Edge, Brave, Arc, Vivaldi and other Chromium browsers. It fills logins on websites and has a popup for filling, copying and searching. **Open Keys** in the popup takes you to the app for everything else.
+Keys comes with an extension for Chrome, Edge, Brave and other Chromium browsers. It fills your logins on websites. It doesn't keep a copy of your passwords. It asks Keys for them, and only while Keys is unlocked.
 
-It keeps no copy of your passwords. It asks the Keys server on this computer, which reads the same database file as the app, and only while Keys is unlocked. Locking in either place locks both.
+![Autofill menu on a login page](docs/screenshots/extension.png)
 
-1. Start Keys (`npm start`, or `npm run dev`).
-2. In the browser, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and pick the `extension` folder.
-3. Open the Keys extension and choose **Connect to Keys**. It shows a 6-character code and opens Keys; type the code under **Settings → Browser extension**.
+1. Download `Keys-extension-1.0.0.zip` from the [latest release](https://github.com/sleepinstead/Keys/releases) and unzip it.
+2. Open `chrome://extensions` and turn on **Developer mode**.
+3. Drag the unzipped folder onto the page.
+4. Click the Keys icon, choose **Connect to Keys**, and enter the code in **Settings → Browser extension**.
 
-- **Filling:** focus a login field and pick one of the logins shown under it, or use **Fill** in the popup. A login is only filled on its own site (or its subdomains), and plain-http pages only for logins saved with an `http://` address. Passwords reach a page only after a real click.
-- **Pairing:** only a hash of each browser's token is stored, in the database file. Disconnect a browser from Settings or from the extension. Switching to another database file means connecting again.
-- **Different port:** if Keys runs on another port (`KEYS_PORT`), change the address in the extension's "Keys isn't running" screen.
+A login only fills on its own website, and only after you click it.
 
-## Security model
+## Security in short
 
-```
-master password ──Argon2id (128 MiB, t=3, p=4, random salt)──▶ KEK
-KEK ──AES-256-GCM unwrap──▶ DEK (random 256-bit vault key)
-DEK ──AES-256-GCM──▶ each item and category (AAD = row id)
-```
+- Your master password unlocks a random vault key. That key encrypts every item, including titles and usernames.
+- The key exists only in memory while Keys is unlocked. Keys locks itself after 5 minutes of inactivity by default.
+- Too many wrong guesses lock you out for longer and longer.
+- The server only answers requests from your own computer.
 
-- Only ciphertext, row ids, timestamps and non-secret settings are written to SQLite. Titles, usernames, URLs, category names and history are all encrypted. `secure_delete` is on, so deleted rows are overwritten.
-- Changing the master password re-wraps the DEK; items aren't re-encrypted.
-- The DEK only exists in the server process's memory while the vault is unlocked. Locking, idle timeout, or stopping the server zeroes it.
-- **Unlock throttling:** after 5 wrong passwords, attempts are refused with exponential backoff (5 s doubling, max 15 min). This persists across restarts.
-- **Sessions:** one session at a time, held in a random 256-bit token sent as a request header. It isn't a cookie because browsers share cookies with every app on localhost, whatever the port. A new tab needs its own unlock, which ends the previous tab's session. Auto-lock after idle time (default 5 min), plus an optional lock when the tab is hidden.
-- **Local-server hardening:** listens on `127.0.0.1` only; rejects non-loopback `Host` headers (DNS rebinding); every API call needs a custom header, an exact `Origin` match when one is sent, and `Sec-Fetch-Site: same-origin` (blocks other sites *and* other apps on other localhost ports); no CORS; strict CSP with no inline scripts and no third-party origins; `no-store` on API responses.
-- **PIN and pattern vaults:** if you choose a PIN or a pattern as the vault credential, it derives the key with a much heavier Argon2id setting (512 MiB, 6 passes) and the app locks out after repeated mistakes. That still can't make 10,000 or 1,000,000 possibilities safe against someone who copies the database file: expect a 4-digit PIN or any pattern to fall within hours, a 6-digit PIN in days. Encrypted backups of these vaults require a separate file password of 10+ characters.
-- **PIN quick unlock:** a short PIN can't protect data at rest (every 4-digit PIN can be tried offline in minutes), so it never does. The master password still derives the only key that decrypts the file. When a PIN is set, a PIN-wrapped copy of the vault key is kept in server memory only; it survives auto-lock, is destroyed after 5 wrong PINs or when the server stops, and is re-armed by the next master-password unlock. The PIN itself is stored encrypted under the vault key, and obvious PINs (1234, 0000, 1212, years) are refused.
-- **Clipboard:** copied secrets are overwritten after 30 s by default, and on lock.
+A few things to know:
 
-### Known limits
+- **There's no way to recover a forgotten master password.** Keep an encrypted export somewhere safe.
+- **A PIN or pattern is much weaker than a password.** Someone with a copy of your file could crack it.
+- **Keys can't protect you from malware** running on your own computer.
 
-- JavaScript strings can't be wiped from memory, so decrypted values can linger in the server and browser heap until garbage-collected. Key material is held in `Buffer`s and zeroed.
-- Browsers only allow clipboard writes while the page has focus. If the timer fires while Keys is in the background, the wipe happens on next focus. The wipe also replaces whatever you copied after the secret.
-- Anything running as your OS user can read the (encrypted) database file and could read the server's memory while the vault is unlocked. Keys protects data at rest and against other websites, not against malware on the same account.
-- There is no master-password recovery. Keep an encrypted export somewhere safe.
-
-## Layout
+## Project layout
 
 ```
-server/   Express API: crypto.ts, vault.ts (key hierarchy, records), session.ts,
-          audit.ts (strength, reuse, HIBP), importExport.ts, security.ts
-shared/   types and the password generator (used by both sides)
-src/      React UI
-test/     node:test suites
+server/      local API, encryption and storage
+src/         React app
+shared/      code used by both sides
+extension/   browser extension
+test/        tests
 ```
