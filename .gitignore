@@ -3,4 +3,5 @@ dist
 .DS_Store
 .claude
 .git
-tests/.impeccable/hook.cache.json
+tests/
+.impeccable/
