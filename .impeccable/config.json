@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-11-11T05:02:27.173Z",
+        "reason": "Claude: the main Keys app is set in Inter (src/styles.css --font), and the user asked the extension to match the app's design language"
+      }
+    ]
+  }
+}
