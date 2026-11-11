@@ -344,8 +344,12 @@ export class Vault {
       history,
       breach: passwordChanged ? null : existing.breach,
     };
-    this.store.update('entries', id, encryptJson(key, data, entryAad(id)), now);
-    return { ...data, id, createdAt: existing.createdAt, updatedAt: now };
+    // Starring or filing an item isn't editing it: "Last edited" and the Recent order stay put.
+    const strip = ({ favorite: _f, categoryId: _c, ...rest }: EntryData) => JSON.stringify(rest);
+    const { id: _id, createdAt: _cr, updatedAt: _up, ...before } = existing;
+    const updatedAt = strip(before) === strip(data) ? existing.updatedAt : now;
+    this.store.update('entries', id, encryptJson(key, data, entryAad(id)), updatedAt);
+    return { ...data, id, createdAt: existing.createdAt, updatedAt };
   }
 
   /** Internal update that doesn't count as a user edit (e.g. caching breach results). */

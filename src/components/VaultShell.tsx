@@ -190,6 +190,20 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           ? TYPE_LABELS[filter.type].many
           : (categories.find((c) => c.id === filter.categoryId)?.name ?? 'Category');
 
+  // The browser extension links here to connect: open Settings with the code dialog.
+  const [connectBrowser, setConnectBrowser] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      if (window.location.hash !== '#connect-browser') return;
+      window.history.replaceState(null, '', window.location.pathname);
+      setView({ kind: 'settings' });
+      setConnectBrowser(true);
+    };
+    check();
+    window.addEventListener('hashchange', check);
+    return () => window.removeEventListener('hashchange', check);
+  }, []);
+
   const selectView = useCallback((v: View) => {
     setView(v);
     setNavOpen(false);
@@ -430,6 +444,8 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                 {view.kind === 'settings' && (
                   <SettingsView
                     categories={categories}
+                    connectBrowser={connectBrowser}
+                    onConnectBrowserDone={() => setConnectBrowser(false)}
                     onCategoriesChanged={async () => {
                       await loadCategories();
                       await loadEntries();

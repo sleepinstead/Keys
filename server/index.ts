@@ -13,6 +13,7 @@ if (!production) origins.push('http://localhost:5173', 'http://127.0.0.1:5173');
 const { app, storage, sessions } = createApp({
   allowedOrigins: origins,
   staticDir: production ? path.join(root, 'dist') : undefined,
+  appUrl: production ? `http://localhost:${port}` : 'http://localhost:5173',
 });
 
 const server = app.listen(port, host, () => {

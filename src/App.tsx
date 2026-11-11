@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { api, errorMessage, LOCK_EVENT } from './api.ts';
 import { clearClipboardNow } from './clipboard.ts';
 import { ConfirmProvider, ToastProvider } from './context.tsx';
 import type { Appearance, VaultStatus } from '../shared/types.ts';
-import { LockScreen } from './components/LockScreen.tsx';
+import { captureBackdrop, hasBackdrop, LockScreen } from './components/LockScreen.tsx';
 import { StorageUnavailable } from './components/StorageDialog.tsx';
 import { VaultShell } from './components/VaultShell.tsx';
 import { ConnectionError, ErrorBoundary } from './components/ErrorScreen.tsx';
@@ -36,6 +36,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   // Bumped on every lock so the vault UI fully unmounts and drops decrypted data.
   const [generation, setGeneration] = useState(0);
+  const unlocked = useRef(false);
+  unlocked.current = status?.unlocked ?? false;
 
   const refresh = useCallback(async () => {
     try {
@@ -54,7 +56,12 @@ export function App() {
 
   useEffect(() => {
     const onLocked = () => {
+      // Every request still in flight comes back "locked" too; only the first one locks the screen,
+      // or the lock screen would remount (and fade in again) once per request.
+      if (!unlocked.current) return void refresh();
+      unlocked.current = false;
       clearClipboardNow();
+      captureBackdrop();
       // Show the lock screen right away. Remounting the vault while the status
       // still says "unlocked" would fire its startup requests against a locked
       // session, and each failure used to surface as a toast.
@@ -92,9 +99,10 @@ export function App() {
         // A different database file (or a fresh one) gets a fresh lock screen.
         key={`lock-${generation}-${status.storage.path}-${status.initialized}`}
         className="screen"
+        // Fades in over the still-sharp app while its blurred copy deepens (styles.css).
         initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={fade.exit}
+        animate={{ opacity: 1, transition: { duration: hasBackdrop() ? 0.35 : 0.2, ease: [0.2, 0, 0, 1] } }}
+        exit={{ opacity: 0, transition: { duration: 0.28, ease: [0.2, 0, 0, 1] } }}
         transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
       >
         <LockScreen status={status} onUnlocked={setStatus} />
@@ -107,7 +115,8 @@ export function App() {
         className="screen"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        exit={fade.exit}
+        // Stays put under the lock screen as that blurs in, instead of flashing to blank.
+        exit={{ opacity: 1, transition: { duration: 0.45 } }}
         transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
       >
         <VaultShell status={status} onLock={lock} />
@@ -120,7 +129,8 @@ export function App() {
       <ErrorBoundary>
         <ToastProvider>
           <ConfirmProvider>
-            <AnimatePresence mode="wait">{screen}</AnimatePresence>
+            {/* Screens are fixed layers: the new one crossfades over the old. */}
+            <AnimatePresence>{screen}</AnimatePresence>
           </ConfirmProvider>
         </ToastProvider>
       </ErrorBoundary>

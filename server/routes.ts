@@ -481,11 +481,12 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
     if (!['encrypted', 'json', 'csv'].includes(format)) throw new HttpError(400, 'Unknown export format');
     const master = requireString(req.body?.masterPassword, 'Master password', 1024);
     if (!(await vault.verifyPassword(master))) throw new HttpError(401, 'Incorrect master password', 'BAD_PASSWORD');
-    if (format === 'encrypted' && !req.body?.exportPassword && isShortCredential(vault.credential())) {
+    const given = typeof req.body?.exportPassword === 'string' ? req.body.exportPassword.slice(0, 1024) : '';
+    if (format === 'encrypted' && !given && isShortCredential(vault.credential())) {
       // A backup file protected only by a short PIN or pattern would be trivial to open once copied.
       throw new HttpError(400, 'Choose a file password for the backup (at least 10 characters).', 'NEEDS_EXPORT_PASSWORD');
     }
-    const exportPassword = format === 'encrypted' ? (req.body?.exportPassword || master) : undefined;
+    const exportPassword = format === 'encrypted' ? given || master : undefined;
     if (format === 'encrypted' && typeof exportPassword === 'string' && exportPassword !== master) {
       if (exportPassword.length < MIN_MASTER_LENGTH) {
         throw new HttpError(400, `Export password must be at least ${MIN_MASTER_LENGTH} characters`);

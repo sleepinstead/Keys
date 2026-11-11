@@ -39,6 +39,17 @@ export class SessionManager {
     return this.key;
   }
 
+  /**
+   * The vault key while Keys is unlocked, for the browser extension (which has no session token
+   * of its own). Optionally counts as activity.
+   */
+  peek(touch: boolean): Buffer | null {
+    this.expireIfIdle();
+    if (!this.key) return null;
+    if (touch) this.lastActivity = Date.now();
+    return this.key;
+  }
+
   expiresAt(): number | null {
     return this.key ? this.lastActivity + this.idleMs() : null;
   }

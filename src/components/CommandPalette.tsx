@@ -114,7 +114,7 @@ export function CommandPalette({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActive((a) => Math.max(0, a - 1));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       run(results[active]);
     } else if (e.key === 'Tab') {

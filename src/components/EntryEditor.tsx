@@ -431,13 +431,14 @@ function EditorForm({
             </div>
           )}
 
-          {/* Only secure notes have a text body; other kinds have no notes field. */}
-          {form.type === 'note' && (
+          {/* Secure notes have a text body. Other kinds only show it when they already have notes
+              (from an import, say), so those are never hidden or lost. */}
+          {(form.type === 'note' || state.entry?.notes) && (
             <Field label={labels.notes} htmlFor={fid('notes')}>
               <textarea
                 id={fid('notes')}
                 className="input"
-                rows={10}
+                rows={form.type === 'note' ? 10 : 4}
                 placeholder="Write anything. It’s encrypted like everything else."
                 value={form.notes}
                 onChange={(e) => set('notes', e.target.value)}

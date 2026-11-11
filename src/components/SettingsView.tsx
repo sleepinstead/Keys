@@ -1,17 +1,17 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Archive, Check, Eye, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
 import { collapse, fade } from '../motion.ts';
 import { isShortCredential } from '../../shared/types.ts';
-import type { Category, CategoryColor, Credential, EntryType, ExportFormat, PinStatus, StorageInfo, VaultStatus } from '../../shared/types.ts';
+import type { BrowserPairing, Category, CategoryColor, Credential, EntryType, ExportFormat, PinStatus, StorageInfo, VaultStatus } from '../../shared/types.ts';
 import { isWeakPin } from '../../shared/generator.ts';
 import { CREDENTIAL_NAMES, choiceFromCredential, CredentialPicker, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
 import { encodePattern, passphraseProblem, passphraseWords } from '../../shared/credential.ts';
-import { downloadBytes, downloadFile, plural, TYPE_LABELS } from '../util.ts';
+import { downloadBytes, downloadFile, plural, timeAgo, TYPE_LABELS } from '../util.ts';
 import { StorageDialog } from './StorageDialog.tsx';
 import { ColorMenu } from './ColorMenu.tsx';
 import { Select } from './Select.tsx';
@@ -83,10 +83,15 @@ function SelectRow({
 
 export function SettingsView({
   categories,
+  connectBrowser,
+  onConnectBrowserDone,
   onCategoriesChanged,
   onImported,
 }: {
   categories: Category[];
+  /** Opens the "connect a browser" dialog (from the extension's link). */
+  connectBrowser: boolean;
+  onConnectBrowserDone: () => void;
   onCategoriesChanged: () => Promise<void>;
   onImported: () => Promise<void>;
 }) {
@@ -213,6 +218,7 @@ export function SettingsView({
         </div>
       </Section>
 
+      <BrowserSection connect={connectBrowser} onConnectDone={onConnectBrowserDone} />
       <BackupSection credential={credential} onImported={onImported} />
       <CategoriesSection categories={categories} onChanged={onCategoriesChanged} />
       </div>
@@ -319,7 +325,7 @@ function StorageSection({ storage, credential, onMoved }: { storage: StorageInfo
           <div className="setting-row">
             <div>
               <div className="setting-label">Built-in location</div>
-              <div className="setting-desc">Go back to the file inside the Keys folder.</div>
+              <div className="setting-desc">Go back to Keys’ default file on this computer.</div>
             </div>
             <Button size="sm" variant="outline" onClick={() => setMode('default')}>
               Use built-in
@@ -494,9 +500,13 @@ function PinSection({ pin, credential, onChanged }: { pin: PinStatus | null; cre
   async function turnOff() {
     const ok = await confirm({ title: 'Turn off PIN unlock?', body: 'You’ll need your master password every time Keys locks.', confirmLabel: 'Turn off', danger: true });
     if (!ok) return;
-    await api.removePin().catch((err) => toast(errorMessage(err), 'error'));
+    try {
+      await api.removePin();
+      toast('PIN unlock is off');
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
     await onChanged();
-    toast('PIN unlock is off');
   }
 
   const n = Number(length);
@@ -971,6 +981,134 @@ const EXPORT_FORMATS: { value: ExportFormat; label: string; description: string;
 ];
 
 /** One tile for backups: export and import, each opening its own dialog. */
+/** Browsers whose Keys extension may fill passwords, and connecting a new one. */
+function BrowserSection({ connect, onConnectDone }: { connect: boolean; onConnectDone: () => void }) {
+  const [list, setList] = useState<BrowserPairing[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
+
+  const load = () => api.browsers().then(setList, () => setList([]));
+  useEffect(() => {
+    void load();
+  }, []);
+  useEffect(() => {
+    if (connect) setOpen(true);
+  }, [connect]);
+
+  const close = () => {
+    setOpen(false);
+    setCode('');
+    setError(null);
+    onConnectDone();
+  };
+
+  async function approve(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const added = await api.approveBrowser(code);
+      toast(`Connected ${added.name}`);
+      close();
+      void load();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(b: BrowserPairing) {
+    const ok = await confirm({
+      title: `Disconnect ${b.name}?`,
+      body: 'Its extension won’t be able to fill passwords until you connect it again.',
+      confirmLabel: 'Disconnect',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.removeBrowser(b.id);
+      toast(`Disconnected ${b.name}`);
+      void load();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  }
+
+  return (
+    <Section title="Browser extension" icon={<Globe size={17} />} size="narrow" lede="Fill passwords in Chrome, Edge, Brave and other Chromium browsers.">
+      <div className="group">
+        {list?.map((b) => (
+          <div className="setting-row" key={b.id}>
+            <div>
+              <div className="setting-label">{b.name}</div>
+              <div className="setting-desc">{b.lastUsedAt ? `Last used ${timeAgo(b.lastUsedAt)}` : `Connected ${timeAgo(b.createdAt)}`}</div>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void remove(b)}>
+              Disconnect
+            </Button>
+          </div>
+        ))}
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">{list?.length ? 'Connect another browser' : 'Connect a browser'}</div>
+            <div className="setting-desc">The extension reads this database through Keys. Nothing is copied.</div>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+            Connect
+          </Button>
+        </div>
+      </div>
+      <Dialog open={open} onClose={close} size="sm" bare title="Connect a browser" description="Type the code the Keys extension shows. It changes each time, and works for 3 minutes.">
+        <form className="dialog-form" onSubmit={approve}>
+          <div className="dialog-body stack">
+            <ol className="connect-steps">
+              <li>
+                In the browser, open <code>chrome://extensions</code>, turn on Developer mode and choose <strong>Load unpacked</strong>. Pick the <code>extension</code> folder inside Keys.
+              </li>
+              <li>Open the Keys extension and choose <strong>Connect to Keys</strong>.</li>
+              <li>Type the code it shows here.</li>
+            </ol>
+            <div className="field">
+              <label htmlFor="browser-code" className="field-label">
+                Code
+              </label>
+              <input
+                id="browser-code"
+                className="input input-mono connect-code"
+                placeholder="ABC-123"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={7}
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                data-autofocus
+              />
+            </div>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+          <footer className="dialog-foot">
+            <Button variant="outline" onClick={close}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" loading={busy} disabled={code.replace(/[^A-Z0-9]/gi, '').length !== 6}>
+              Connect
+            </Button>
+          </footer>
+        </form>
+      </Dialog>
+    </Section>
+  );
+}
+
 function BackupSection({ credential, onImported }: { credential: Credential; onImported: () => Promise<void> }) {
   const [open, setOpen] = useState<'export' | 'import' | null>(null);
   const [session, setSession] = useState(0);

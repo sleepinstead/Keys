@@ -17,9 +17,37 @@ import { Button, IconButton, OtpInput, StrengthMeter, useStrength } from './ui.t
 
 export { PinWarning } from './credential.tsx';
 
-/** A quiet sketch of the app behind the unlock dialog. It holds no data. */
-/** A faint outline of the app behind the lock card: sidebar, then the inset panel with the list and an item. */
+let snapshot: HTMLElement | null = null;
+
+/**
+ * Keeps a copy of the app as it looked when it locked, to show blurred behind the lock card.
+ * Every letter, value and label is scrubbed first, so the copy holds no vault data.
+ */
+export function captureBackdrop() {
+  const live = [...document.querySelectorAll('.screen > *')].findLast((el) => !el.classList.contains('lock'));
+  if (!live) return;
+  const copy = live.cloneNode(true) as HTMLElement;
+  const walk = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+  for (let t = walk.nextNode(); t; t = walk.nextNode()) t.nodeValue = t.nodeValue!.replace(/\S/g, 'x');
+  for (const el of copy.querySelectorAll('*')) {
+    for (const a of ['id', 'value', 'title', 'aria-label', 'alt', 'href', 'placeholder', 'name']) el.removeAttribute(a);
+    // The app's own images (its logo) stay; anything else, like a site's icon, goes.
+    if (el instanceof HTMLImageElement && !el.src.startsWith('data:') && new URL(el.src, location.href).origin !== location.origin) el.removeAttribute('src');
+  }
+  copy.querySelectorAll('input, textarea').forEach((i) => ((i as HTMLInputElement).value = ''));
+  copy.inert = true;
+  snapshot = copy;
+}
+
+/** Whether the lock screen opens over a copy of the app (so it needn't fade in). */
+export const hasBackdrop = () => snapshot !== null;
+
 function Backdrop() {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (snapshot && host.current) host.current.replaceChildren(snapshot);
+  }, []);
+  if (snapshot) return <div ref={host} className="lock-backdrop lock-backdrop-live" aria-hidden="true" />;
   return (
     <div className="lock-backdrop" aria-hidden="true">
       <div className="sk-sidebar">

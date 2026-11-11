@@ -1,10 +1,18 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
+/** Per-user config folder: never the project folder, never synced by default. */
+export function configDir(): string {
+  const home = os.homedir();
+  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Keys');
+  if (process.platform === 'win32') return path.join(process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'Keys');
+  return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'keys');
+}
 
 /** Where the database lives until the user connects one somewhere else (see storage.ts). */
-export const DB_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'database.sqlite');
+export const DB_FILE = path.join(configDir(), 'Keys.sqlite');
 
 export interface Row {
   id: string;

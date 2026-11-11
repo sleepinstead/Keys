@@ -8,7 +8,7 @@ import { APP_ID } from '../server/db.ts';
 import { normalizePath, Storage } from '../server/storage.ts';
 import { HttpError } from '../server/validate.ts';
 
-// Everything happens in a throwaway folder: never the project's data/ or the real pointer file.
+// Everything happens in a throwaway folder: never the default database or the real pointer file.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-storage-test-'));
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
 const at = (name: string) => path.join(dir, name);

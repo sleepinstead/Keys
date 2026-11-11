@@ -23,6 +23,8 @@ export function useSiteIcons(entries: EntrySummary[] | null, enabled: boolean, o
     const next = () => {
       while (running.current < AT_ONCE && queue.length) {
         const e = queue.shift()!;
+        // An earlier run's queue may already have started this one.
+        if (tried.current.has(e.id)) continue;
         tried.current.add(e.id);
         running.current++;
         void (async () => {

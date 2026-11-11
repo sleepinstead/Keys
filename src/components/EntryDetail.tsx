@@ -188,8 +188,12 @@ export function EntryDetail({
       danger: true,
     });
     if (!ok) return;
-    setEntry(await api.clearHistory(entry.id));
-    setHistoryOpen(false);
+    try {
+      setEntry(await api.clearHistory(entry.id));
+      setHistoryOpen(false);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
   }
 
   const strengthChip = strength && (
@@ -299,7 +303,7 @@ export function EntryDetail({
           </div>
         )}
 
-        {entry.type === 'note' && entry.notes && (
+        {entry.notes && (
           <div className="group group-pad">
             <div className="row-label">{labels.notes}</div>
             <p className="notes-text">{entry.notes}</p>

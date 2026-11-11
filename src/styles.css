@@ -1435,12 +1435,50 @@ select.input-sm.select,
 .sk-card-md {
   height: 130px;
 }
+.lock-backdrop {
+  filter: blur(28px) saturate(1.15);
+  transform: scale(1.06); /* hides the blur's soft edges */
+}
+.lock-backdrop-live {
+  display: block;
+  background: var(--bg);
+  animation: lock-blur 0.5s cubic-bezier(0.2, 0, 0, 1) both;
+}
+.lock-backdrop-live ~ .lock-overlay {
+  animation: lock-tint 0.5s cubic-bezier(0.2, 0, 0, 1) both;
+}
+@keyframes lock-blur {
+  from {
+    filter: blur(14px) saturate(1);
+    transform: scale(1.02);
+  }
+}
+@keyframes lock-tint {
+  from {
+    opacity: 0;
+  }
+}
+.lock-backdrop-live > * {
+  height: 100%;
+}
+/* The copy is a still picture: replayed entry animations, and frosted layers inside a blurred
+   parent, make Chrome repaint it every frame, which flickers. */
+.lock-backdrop-live *,
+.lock-backdrop-live *::before,
+.lock-backdrop-live *::after {
+  animation: none !important;
+  transition: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  will-change: auto !important;
+}
+.lock-backdrop {
+  contain: strict;
+}
 .lock-overlay {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
 }
 .lock-center {
   position: relative;
@@ -3335,8 +3373,6 @@ svg.dial-layer {
 
 @media (prefers-reduced-transparency: reduce) {
   .lock-overlay {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
     background: color-mix(in srgb, var(--bg) 85%, transparent);
   }
 }
@@ -5380,4 +5416,29 @@ svg.dial-layer {
 .trash-summary span {
   color: var(--text-3);
   font-size: 12.5px;
+}
+
+/* Connecting the browser extension */
+.connect-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  list-style: decimal;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.connect-steps code {
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--bg-muted);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.connect-code {
+  height: 48px;
+  font-size: 20px;
+  letter-spacing: 0.2em;
+  text-align: center;
 }

@@ -1,6 +1,6 @@
 # Keys
 
-An offline-first password manager. Everything is encrypted on your machine and stored in one local SQLite file, `data/database.sqlite`; nothing goes to a cloud service. Only two features use the internet: website icons for logins (on by default; Settings → Icons → Hide icons in Logins stops them) and the opt-in breach check.
+An offline-first password manager. Everything is encrypted on your machine and stored in one local SQLite file; nothing goes to a cloud service. Only two features use the internet: website icons for logins (on by default; Settings → Icons → Hide icons in Logins stops them) and the opt-in breach check.
 
 ## Run it
 
@@ -25,13 +25,13 @@ npm run typecheck
 
 ## Where data lives
 
-Everything Keys stores is in **one SQLite file**, and you choose where it lives. Out of the box it's `data/database.sqlite` in the project folder; under **Settings → Database** you can put it anywhere this device can reach: any folder, iCloud Drive, Google Drive (with the file set to stay downloaded), a USB drive.
+Everything Keys stores is in **one SQLite file**, and you choose where it lives. Out of the box it's `Keys.sqlite` in your per-user app folder (`~/Library/Application Support/Keys` on macOS); under **Settings → Database** you can put it anywhere this device can reach: any folder, iCloud Drive, Google Drive (with the file set to stay downloaded), a USB drive.
 
 - **Connect a database:** open a Keys file you already have. Keys locks and switches to it.
 - **Move this database:** copy everything to a new location and keep working from there. The old file is left untouched.
 - **New empty database:** download an empty database (all tables, no data) to place anywhere and connect later, or on macOS create one directly in a folder you pick.
 - **Erase this database:** permanently deletes everything in the open file (it needs your password or PIN) and returns to setup.
-- **Built-in location:** switch back to `data/database.sqlite`.
+- **Built-in location:** switch back to that default `Keys.sqlite`.
 
 On macOS each option has a **Browse** button that opens the normal Finder dialog; anywhere else, paste the file's full path (`~/…` and `file://` links work). Every change of file needs the current database's master password or PIN, with the usual lockout after repeated mistakes.
 
@@ -40,11 +40,11 @@ Keys remembers only the file's *location*, in a small pointer file outside the p
 - Items, categories, password history, breach results, settings (including the generator's last-used options) and unlock-throttling state are all rows in that file, so they travel with it.
 - SQLite runs in rollback-journal mode, so there are no `-wal`/`-shm` side files to sync; a `-journal` file appears only during a write.
 - The browser keeps no vault data: no localStorage or IndexedDB and no cookies. Each tab holds only the session token in `sessionStorage`, which is meaningless after a lock or restart.
-- Tests use an in-memory database or throwaway temp folders and never touch `data/` or your pointer file.
+- Tests use an in-memory database or throwaway temp folders and never touch your database or pointer file.
 
 **Cloud folders:** open the database from one device at a time. Two devices writing the same file at once can leave sync conflicts, and SQLite can't lock a file across machines.
 
-To back up, use an encrypted export (below) or copy the database file while Keys is stopped. `data/` is git-ignored. `KEYS_PORT` changes the port.
+To back up, use an encrypted export (below) or copy the database file while Keys is stopped. `KEYS_PORT` changes the port.
 
 ## What it does
 
@@ -62,6 +62,20 @@ To back up, use an encrypted export (below) or copy the database file while Keys
 - **Themes:** light, dark or follow the system (saved in the vault). Motion respects reduced-motion settings.
 - **Export:** encrypted Keys file (Argon2id + AES-256-GCM, own password), or plaintext JSON/CSV after a warning. Every export re-asks for the master password.
 
+## Browser extension
+
+The `extension` folder is a Keys extension for Chrome, Edge, Brave, Arc, Vivaldi and other Chromium browsers. It fills logins on websites and has a popup for filling, copying and searching. **Open Keys** in the popup takes you to the app for everything else.
+
+It keeps no copy of your passwords. It asks the Keys server on this computer, which reads the same database file as the app, and only while Keys is unlocked. Locking in either place locks both.
+
+1. Start Keys (`npm start`, or `npm run dev`).
+2. In the browser, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and pick the `extension` folder.
+3. Open the Keys extension and choose **Connect to Keys**. It shows a 6-character code and opens Keys; type the code under **Settings → Browser extension**.
+
+- **Filling:** focus a login field and pick one of the logins shown under it, or use **Fill** in the popup. A login is only filled on its own site (or its subdomains), and plain-http pages only for logins saved with an `http://` address. Passwords reach a page only after a real click.
+- **Pairing:** only a hash of each browser's token is stored, in the database file. Disconnect a browser from Settings or from the extension. Switching to another database file means connecting again.
+- **Different port:** if Keys runs on another port (`KEYS_PORT`), change the address in the extension's "Keys isn't running" screen.
+
 ## Security model
 
 ```
@@ -76,7 +90,7 @@ DEK ──AES-256-GCM──▶ each item and category (AAD = row id)
 - **Unlock throttling:** after 5 wrong passwords, attempts are refused with exponential backoff (5 s doubling, max 15 min). This persists across restarts.
 - **Sessions:** one session at a time, held in a random 256-bit token sent as a request header. It isn't a cookie because browsers share cookies with every app on localhost, whatever the port. A new tab needs its own unlock, which ends the previous tab's session. Auto-lock after idle time (default 5 min), plus an optional lock when the tab is hidden.
 - **Local-server hardening:** listens on `127.0.0.1` only; rejects non-loopback `Host` headers (DNS rebinding); every API call needs a custom header, an exact `Origin` match when one is sent, and `Sec-Fetch-Site: same-origin` (blocks other sites *and* other apps on other localhost ports); no CORS; strict CSP with no inline scripts and no third-party origins; `no-store` on API responses.
-- **PIN and pattern vaults:** if you choose a PIN or a pattern as the vault credential, it derives the key with a much heavier Argon2id setting (512 MiB, 6 passes) and the app locks out after repeated mistakes. That still can't make 10,000 or 1,000,000 possibilities safe against someone who copies `data/database.sqlite`: expect a 4-digit PIN or any pattern to fall within hours, a 6-digit PIN in days. Encrypted backups of these vaults require a separate file password of 10+ characters.
+- **PIN and pattern vaults:** if you choose a PIN or a pattern as the vault credential, it derives the key with a much heavier Argon2id setting (512 MiB, 6 passes) and the app locks out after repeated mistakes. That still can't make 10,000 or 1,000,000 possibilities safe against someone who copies the database file: expect a 4-digit PIN or any pattern to fall within hours, a 6-digit PIN in days. Encrypted backups of these vaults require a separate file password of 10+ characters.
 - **PIN quick unlock:** a short PIN can't protect data at rest (every 4-digit PIN can be tried offline in minutes), so it never does. The master password still derives the only key that decrypts the file. When a PIN is set, a PIN-wrapped copy of the vault key is kept in server memory only; it survives auto-lock, is destroyed after 5 wrong PINs or when the server stops, and is re-armed by the next master-password unlock. The PIN itself is stored encrypted under the vault key, and obvious PINs (1234, 0000, 1212, years) are refused.
 - **Clipboard:** copied secrets are overwritten after 30 s by default, and on lock.
 
@@ -95,5 +109,4 @@ server/   Express API: crypto.ts, vault.ts (key hierarchy, records), session.ts,
 shared/   types and the password generator (used by both sides)
 src/      React UI
 test/     node:test suites
-data/     database.sqlite (created on first run, git-ignored)
 ```

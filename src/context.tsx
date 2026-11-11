@@ -72,6 +72,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const resolver = useRef<((v: boolean) => void) | null>(null);
 
   const confirm = useCallback((o: ConfirmOptions) => {
+    resolver.current?.(false); // a second question replaces the first, which counts as cancelled
     setOpts(o);
     setOpen(true);
     return new Promise<boolean>((resolve) => {

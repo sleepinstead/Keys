@@ -29,7 +29,7 @@ async function call(method: string, url: string, body?: unknown, headers: Record
 }
 
 before(async () => {
-  // In-memory database: tests never touch data/database.sqlite or write files.
+  // In-memory database: tests never touch a database file or write files.
   ctx = createApp({
     dbFile: ':memory:',
     allowedOrigins: [],
@@ -334,5 +334,23 @@ test('changing the database file needs the current password or PIN', async () =>
     app2.sessions.dispose();
     srv.close();
     app2.storage.close();
+  }
+});
+
+test('starring or filing an item does not count as editing it', async () => {
+  const { Store } = await import('../server/db.ts');
+  const { Vault } = await import('../server/vault.ts');
+  const store = new Store(':memory:');
+  try {
+    const vault = new Vault(store);
+    const key = await vault.setup(MASTER);
+    const base = { type: 'login' as const, title: 'Site', username: 'me', password: 'pw-1', url: '', notes: '', codes: '', categoryId: null, favorite: false, icon: '', customFields: [] };
+    const made = vault.createEntry(key, base);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(vault.updateEntry(key, made.id, { ...base, favorite: true }).updatedAt, made.updatedAt);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.ok(vault.updateEntry(key, made.id, { ...base, favorite: true, title: 'Site 2' }).updatedAt > made.updatedAt);
+  } finally {
+    store.close();
   }
 });

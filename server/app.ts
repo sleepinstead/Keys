@@ -7,6 +7,7 @@ import { createApi } from './routes.ts';
 import type { RangeFetcher } from './audit.ts';
 import type { IconFetcher } from './favicon.ts';
 import { apiGuard, loopbackOnly, securityHeaders } from './security.ts';
+import { createExtensionApi } from './extension.ts';
 import { SessionManager } from './session.ts';
 import { QuickUnlock } from './pin.ts';
 import { HttpError } from './validate.ts';
@@ -22,6 +23,8 @@ export interface AppOptions {
   fetchRange?: RangeFetcher;
   /** Tests replace the network call for website icons. */
   fetchIcon?: IconFetcher;
+  /** Where the app's page is served, for the browser extension's "Open Keys" button. */
+  appUrl?: string;
 }
 
 export function createApp(opts: AppOptions) {
@@ -35,9 +38,12 @@ export function createApp(opts: AppOptions) {
   app.disable('x-powered-by');
   app.set('etag', false);
   app.use(loopbackOnly, securityHeaders);
+  const browsers = createExtensionApi({ vault, storage, sessions, quick, appUrl: opts.appUrl ?? 'http://localhost:5174' });
+  app.use('/api/extension', browsers.extension);
   app.use(
     '/api',
     apiGuard(new Set(opts.allowedOrigins)),
+    browsers.manage,
     createApi({ vault, storage, sessions, quick, fetchRange: opts.fetchRange, fetchIcon: opts.fetchIcon }),
   );
 

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Keys</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="top">
+      <img class="mark" src="icons/mark.png" alt="" />
+      <span class="wordmark">Keys</span>
+      <span class="status" id="status" hidden></span>
+      <span class="top-actions">
+        <button type="button" class="icon-btn" id="lock" title="Lock Keys" aria-label="Lock Keys" hidden></button>
+        <button type="button" class="btn btn-outline btn-sm" id="open-app" title="Manage passwords and settings in Keys">Open Keys</button>
+      </span>
+    </header>
+    <main id="view" aria-live="polite"></main>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

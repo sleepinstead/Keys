@@ -2,7 +2,9 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DB_FILE, inspectDatabase, Store } from './db.ts';
+import { configDir, DB_FILE, inspectDatabase, Store } from './db.ts';
+
+export { configDir };
 import { HttpError } from './validate.ts';
 import type { StorageInfo } from '../shared/types.ts';
 
@@ -14,13 +16,6 @@ import type { StorageInfo } from '../shared/types.ts';
  * and doesn't depend on the project folder. Everything else lives in the database.
  */
 
-/** Per-user config folder: never the project folder, never synced by default. */
-export function configDir(): string {
-  const home = os.homedir();
-  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Keys');
-  if (process.platform === 'win32') return path.join(process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'Keys');
-  return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'keys');
-}
 export const POINTER_FILE = path.join(configDir(), 'location.json');
 
 /** Accepts ~/…, quoted paths and file:// URLs pasted from Finder. Always returns an absolute path. */
@@ -54,7 +49,7 @@ export class Storage {
    * Otherwise the pointer chooses the file, falling back to the default location.
    */
   constructor(opts: { memory?: boolean; pointerFile?: string | null; defaultFile?: string } = {}) {
-    // In memory (tests), "the built-in location" is memory too, so nothing ever touches data/.
+    // In memory (tests), "the built-in location" is memory too, so nothing ever touches the disk.
     this.defaultFile = opts.memory ? ':memory:' : (opts.defaultFile ?? DB_FILE);
     if (opts.memory) {
       this.pointer = null;

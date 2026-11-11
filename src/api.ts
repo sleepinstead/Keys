@@ -1,5 +1,6 @@
 import type {
   AuditReport,
+  BrowserPairing,
   Category,
   CategoryColor,
   Credential,
@@ -92,6 +93,9 @@ export const api = {
   createStorage: (path: string, current?: string) => request<VaultStatus>('POST', '/storage/create', { path, current }),
   moveStorage: (path: string, current?: string) => request<VaultStatus>('POST', '/storage/move', { path, current }),
   defaultStorage: (current?: string) => request<VaultStatus>('POST', '/storage/default', { current }),
+  browsers: () => request<BrowserPairing[]>('GET', '/browsers'),
+  approveBrowser: (code: string) => request<BrowserPairing>('POST', '/browsers/approve', { code }),
+  removeBrowser: (browserId: string) => request<{ ok: true }>('DELETE', `/browsers/${encodeURIComponent(browserId)}`),
   wipeStorage: (current?: string) => request<VaultStatus>('POST', '/storage/wipe', { current }),
   retryStorage: () => request<VaultStatus>('POST', '/storage/retry'),
   browseStorage: (mode: 'open' | 'save') => request<{ path: string | null }>('POST', '/storage/browse', { mode }),

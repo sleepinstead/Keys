@@ -79,6 +79,14 @@ export interface TrashedEntry extends EntrySummary {
   deletedAt: number;
 }
 
+/** A browser whose Keys extension is allowed to fill passwords. */
+export interface BrowserPairing {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
 export interface Category {
   id: string;
   name: string;
