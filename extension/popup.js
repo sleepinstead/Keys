@@ -19,6 +19,7 @@ const ICONS = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
   alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
 };
 
 function icon(name) {
@@ -173,11 +174,31 @@ function unpaired(state) {
     'link',
     'Enter this code in Keys',
     'Keys opens at the right place. The code works for 3 minutes.',
-    h('div', { class: 'code', role: 'img', 'aria-label': `Code ${[...code].join(' ')}` }, cells.slice(0, 3), h('span', { class: 'code-dot' }), cells.slice(3)),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'code',
+        title: 'Copy code',
+        'aria-label': `Copy code ${[...code].join(' ')}`,
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(code);
+            toast('Code copied. Paste it in Keys');
+          } catch {
+            toast('Couldn’t copy. Type the code instead', true);
+          }
+        },
+      },
+      cells.slice(0, 3),
+      h('span', { class: 'code-dot' }),
+      cells.slice(3),
+    ),
+    h('span', { class: 'code-hint' }, icon('copy'), 'Click the code to copy it'),
     h(
       'div',
       { class: 'hero-actions' },
-      h('button', { type: 'button', class: 'btn btn-primary btn-lg btn-block', onClick: () => void openApp('#connect-browser') }, 'Open Keys to enter it', icon('external')),
+      h('button', { type: 'button', class: 'btn btn-primary btn-lg btn-block', onClick: async () => { await navigator.clipboard.writeText(code).catch(() => {}); void openApp('#connect-browser'); } }, 'Copy code and open Keys', icon('external')),
       h('span', { class: 'waiting' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Waiting for Keys'),
       h(
         'button',

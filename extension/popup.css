@@ -333,10 +333,38 @@ svg {
 
 /* The pairing code, drawn like the app's PIN boxes. */
 .code {
+  all: unset;
   display: flex;
   align-items: center;
   gap: 6px;
   margin: 14px 0 2px;
+  padding: 4px;
+  border-radius: 14px;
+  cursor: copy;
+  transition: background 0.15s;
+}
+.code:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+}
+.code:focus-visible {
+  box-shadow: 0 0 0 3px rgba(127, 127, 127, 0.25);
+}
+.code-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  color: var(--text-3, #71717a);
+  font-size: 12px;
+}
+.code-hint svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .code-cell {
   display: grid;

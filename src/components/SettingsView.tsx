@@ -1080,12 +1080,12 @@ function BrowserSection({ connect, onConnectDone }: { connect: boolean; onConnec
               <input
                 id="browser-code"
                 className="input input-mono connect-code"
-                placeholder="ABC-123"
+                placeholder="ABC123"
                 autoComplete="off"
                 spellCheck={false}
-                maxLength={7}
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                // Pasted codes arrive with dots, dashes or spaces: keep just the 6 characters.
+                onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
                 data-autofocus
               />
             </div>

@@ -54,7 +54,7 @@ Keys comes with an extension for Chrome, Edge, Brave and other Chromium browsers
 
 ![Autofill menu on a login page](docs/screenshots/extension.png)
 
-1. Download `Keys-extension-1.0.0.zip` from the [latest release](https://github.com/sleepinstead/Keys/releases) and unzip it.
+1. Download `Keys-extension-1.0.1.zip` from the [latest release](https://github.com/sleepinstead/Keys/releases) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode**.
 3. Drag the unzipped folder onto the page.
 4. Click the Keys icon, choose **Connect to Keys**, and enter the code in **Settings → Browser extension**.
