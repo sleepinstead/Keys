@@ -87,12 +87,14 @@ export class Vault {
 
   async setup(password: string, credential: Credential = { type: 'password' }): Promise<Buffer> {
     if (this.isInitialized()) throw new HttpError(409, 'Setup is already done');
+    const store = this.store; // the file this setup is for, even if another is connected meanwhile
     const dek = crypto.randomBytes(KEY_BYTES);
     const kdf = newKdfParams(isShortCredential(credential) ? 'pin' : 'password');
     const kek = await deriveKey(password, kdf);
     try {
       const wrapped = encrypt(kek, dek, DEK_AAD);
       const now = Date.now();
+      if (this.store !== store) throw new HttpError(409, 'The database changed during setup. Start again.');
       this.store.transaction(() => {
         // Checked again here: a second setup may have finished during key derivation.
         if (this.isInitialized()) throw new HttpError(409, 'Setup is already done');
@@ -304,7 +306,7 @@ export class Vault {
     return this.readEntry(key, row);
   }
 
-  private checkCategory(key: Buffer, categoryId: string | null): string | null {
+  private checkCategory(categoryId: string | null): string | null {
     if (categoryId === null) return null;
     return this.store.get('categories', categoryId) ? categoryId : null;
   }
@@ -314,7 +316,7 @@ export class Vault {
     const now = Date.now();
     const data: EntryData = {
       ...input,
-      categoryId: this.checkCategory(key, input.categoryId),
+      categoryId: this.checkCategory(input.categoryId),
       passwordUpdatedAt: extras.passwordUpdatedAt ?? now,
       history: (extras.history ?? []).slice(0, HISTORY_LIMIT),
       breach: null,
@@ -339,10 +341,12 @@ export class Vault {
         : existing.history;
     const data: EntryData = {
       ...input,
-      categoryId: this.checkCategory(key, input.categoryId),
+      categoryId: this.checkCategory(input.categoryId),
       passwordUpdatedAt: passwordChanged ? now : existing.passwordUpdatedAt,
       history,
       breach: passwordChanged ? null : existing.breach,
+      // Kept: its key says whether it still applies, so a stale one is simply re-rated.
+      ...(existing.strength ? { strength: existing.strength } : {}),
     };
     // Starring or filing an item isn't editing it: "Last edited" and the Recent order stay put.
     const strip = ({ favorite: _f, categoryId: _c, ...rest }: EntryData) => JSON.stringify(rest);
@@ -353,10 +357,11 @@ export class Vault {
   }
 
   /** Internal update that doesn't count as a user edit (e.g. caching breach results). */
-  patchEntryData(key: Buffer, id: string, patch: Partial<EntryData>): void {
+  patchEntryData(key: Buffer, id: string, patch: Partial<EntryData>, onlyIf?: (current: EntryData) => boolean): void {
     const row = this.store.get('entries', id);
     if (!row) return;
     const { id: _id, createdAt: _c, updatedAt: _u, ...data } = this.readEntry(key, row);
+    if (onlyIf && !onlyIf(data)) return;
     this.store.update('entries', id, encryptJson(key, { ...data, ...patch }, entryAad(id)), row.updated_at);
   }
 

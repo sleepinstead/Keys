@@ -115,7 +115,8 @@ export class Store {
   constructor(file: string = DB_FILE) {
     this.file = file;
     if (file === DB_FILE) fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(file);
+    // Wait (up to 5 s) for another program holding the file briefly, instead of failing at once.
+    this.db = new DatabaseSync(file, { timeout: 5000 });
     // Rollback journal rather than WAL: committed data lives only in database.sqlite,
     // with no persistent -wal/-shm side files. The -journal file exists only mid-transaction.
     this.db.exec(`
@@ -167,7 +168,8 @@ export class Store {
       this.db.exec('COMMIT');
       return result;
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      // SQLite may already have rolled back (disk full, I/O error); don't hide the real error.
+      if (this.db.isTransaction) this.db.exec('ROLLBACK');
       throw err;
     }
   }

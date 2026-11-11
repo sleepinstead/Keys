@@ -36,10 +36,13 @@ export class QuickUnlock {
     return this.wrapped !== null;
   }
 
-  async arm(dek: Buffer, pin: string): Promise<void> {
+  async arm(dekIn: Buffer, pin: string): Promise<void> {
+    // A copy taken now: the session's key can be wiped (locked) while the PIN key is derived.
+    const dek = Buffer.from(dekIn);
     const kdf = newKdfParams();
     const key = await deriveKey(pin, kdf);
     try {
+      if (dek.every((b) => b === 0)) throw new HttpError(409, 'Keys locked while setting up the PIN. Unlock and try again.', 'LOCKED');
       this.disarm();
       this.wrapped = encrypt(key, dek, WRAP_AAD);
       this.kdf = kdf;
@@ -47,6 +50,7 @@ export class QuickUnlock {
       this.attemptsLeft = MAX_PIN_ATTEMPTS;
     } finally {
       key.fill(0);
+      dek.fill(0);
     }
   }
 

@@ -54,7 +54,7 @@ export function ColorMenu({
     document.addEventListener('keydown', onKey, true);
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
-    requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
+    requestAnimationFrame(() => (panel.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? panel.current?.querySelector<HTMLElement>('button'))?.focus());
     return () => {
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);

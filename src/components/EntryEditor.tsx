@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Eye, EyeOff, Globe, Pencil, Plus, Shapes, Sparkles, Star, Trash2, X } from 'lucide-react';
 import { api, ApiError, errorMessage } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
-import { collapse, popStar } from '../motion.ts';
+import { collapse } from '../motion.ts';
 import { normalizeIcon } from '../icon.ts';
 import { CATEGORY_COLORS } from '../../shared/types.ts';
 import type { Category, CustomField, Entry, EntryInput, EntryType, CategoryColor } from '../../shared/types.ts';
@@ -295,9 +295,19 @@ function EditorForm({
     setError(null);
     setSaving(true);
     try {
+      // Fields the chosen kind doesn't show are cleared, so switching kinds never saves hidden leftovers
+      // (a password typed before switching a new item to a secure note, say).
+      // Only when the kind changed here: an existing item keeps any imported extras it already had.
+      const t = form.type;
+      const drop = !entry || entry.type !== t;
+      const keep = (shown: boolean, v: string) => (shown || !drop ? v : '');
       const cleaned = {
         ...form,
-        codes: form.codes.split('\n').map((c) => c.trim()).filter(Boolean).join('\n'),
+        username: keep(t !== 'note', form.username),
+        password: keep(t === 'login' || t === 'apiKey', form.password),
+        url: keep(t !== 'note', form.url),
+        notes: keep(t === 'note' || Boolean(entry?.notes), form.notes),
+        codes: keep(t === 'recovery', form.codes.split('\n').map((c) => c.trim()).filter(Boolean).join('\n')),
         customFields: form.customFields.filter((f) => f.label.trim() || f.value),
       };
       onSaved(entry ? await api.updateEntry(entry.id, cleaned) : await api.createEntry(cleaned));
@@ -348,7 +358,7 @@ function EditorForm({
             label={form.favorite ? 'Remove from favorites' : 'Add to favorites'}
             className="editor-fav"
             aria-pressed={form.favorite}
-            onClick={(e) => { if (!form.favorite) popStar(e.currentTarget); set('favorite', !form.favorite); }}
+            onClick={() => set('favorite', !form.favorite)}
           >
             <Star size={18} className={form.favorite ? 'is-fav' : undefined} />
           </IconButton>

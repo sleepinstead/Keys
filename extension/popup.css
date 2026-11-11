@@ -32,7 +32,7 @@
   --on-primary: #ffffff;
   --danger-text: #b91c1c;
   --good: #16a34a;
-  --focus: 0 0 0 3px rgba(10, 10, 10, 0.1);
+  --focus: 0 0 0 0 transparent; /* no focus ring */
   --tooltip-bg: #171717;
   --tooltip-text: #fafafa;
   --shadow-lg: 0 24px 48px -12px rgba(10, 10, 10, 0.18), 0 8px 16px -8px rgba(10, 10, 10, 0.08);
@@ -56,7 +56,7 @@
     --on-primary: #0a0a0a;
     --danger-text: #ff8a8a;
     --good: #22c55e;
-    --focus: 0 0 0 3px rgba(255, 255, 255, 0.14);
+    --focus: 0 0 0 0 transparent; /* no focus ring */
     --tooltip-bg: #fafafa;
     --tooltip-text: #0a0a0a;
     --shadow-lg: 0 24px 56px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
@@ -347,7 +347,7 @@ svg {
   background: var(--bg-hover, rgba(127, 127, 127, 0.08));
 }
 .code:focus-visible {
-  box-shadow: 0 0 0 3px rgba(127, 127, 127, 0.25);
+  box-shadow: var(--focus);
 }
 .code-hint {
   display: inline-flex;
@@ -419,8 +419,10 @@ svg {
 .body {
   display: grid;
   gap: 12px;
-  max-height: 448px;
+  /* Chrome caps a popup at 600px: header + this + footer stay inside it, so only this part scrolls. */
+  max-height: 486px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px;
 }
 .site {
@@ -677,4 +679,75 @@ svg {
   .otp-cell {
     transition: none;
   }
+}
+
+/* Saving preferences, under the logins */
+.prefs {
+  display: grid;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.pref {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.pref + .pref {
+  border-top: 1px solid var(--border);
+}
+.pref-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.pref-title {
+  font-size: 13px;
+  font-weight: 550;
+}
+.pref-sub {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--border-strong, #d6d6da);
+  cursor: pointer;
+  transition: background 0.18s;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+.switch:checked {
+  background: var(--text);
+}
+.switch:checked::after {
+  transform: translateX(14px);
+  background: var(--bg);
+}
+.switch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.body[data-searching] > .site,
+.body[data-searching] > .site + .group {
+  display: none;
 }

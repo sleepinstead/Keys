@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ArrowLeft, Check, ChevronDown, Copy, ExternalLink, Eye, EyeOff, KeyRound, Pencil, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
 import { useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
-import { collapse, popStar, quick } from '../motion.ts';
+import { collapse, quick } from '../motion.ts';
 import type { Category, Entry, StrengthResult } from '../../shared/types.ts';
 import { FIELD_LABELS, formatDate, hostname, safeHref, timeAgo, TYPE_LABELS } from '../util.ts';
 import { Button, CopyButton, FolderIcon, IconButton, Monogram, SecretText, STRENGTH_TONE, STRENGTH_WORDS, Spinner, Tooltip } from './ui.tsx';
@@ -93,7 +93,7 @@ export function EntryDetail({
   entryId: string;
   categories: Category[];
   onEdit: (entry: Entry) => void;
-  onDeleted: () => void;
+  onDeleted: (id: string) => void;
   onChanged: (entry: Entry) => void;
   onBack: () => void;
   /** Bumped after an edit so the detail reloads. */
@@ -160,7 +160,10 @@ export function EntryDetail({
   async function toggleFavorite() {
     if (!entry) return;
     try {
-      const updated = await api.updateEntry(entry.id, { ...entry, favorite: !entry.favorite });
+      // Only the star changes on the server: sending the whole item back could undo a newer edit
+      // (say, a password the browser extension saved after this page loaded).
+      await api.updateEntries([entry.id], { favorite: !entry.favorite });
+      const updated = await api.entry(entry.id);
       setEntry(updated);
       onChanged(updated);
     } catch (err) {
@@ -173,7 +176,7 @@ export function EntryDetail({
     try {
       await api.deleteEntry(entry.id);
       toast(`Moved ${entry.title} to Recently deleted`);
-      onDeleted();
+      onDeleted(entry.id);
     } catch (err) {
       toast(errorMessage(err), 'error');
     }
@@ -211,7 +214,7 @@ export function EntryDetail({
           <ArrowLeft size={18} />
         </IconButton>
         <div className="toolbar-end">
-          <IconButton label={entry.favorite ? 'Remove from favorites' : 'Add to favorites'} onClick={(e) => { if (!entry.favorite) popStar(e.currentTarget); void toggleFavorite(); }} aria-pressed={entry.favorite}>
+          <IconButton label={entry.favorite ? 'Remove from favorites' : 'Add to favorites'} onClick={() => void toggleFavorite()} aria-pressed={entry.favorite}>
             <Star size={16} className={entry.favorite ? 'is-fav' : undefined} />
           </IconButton>
           {href && (

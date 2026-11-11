@@ -28,7 +28,7 @@
   --text: #0a0a0a;
   --text-2: #3f3f46;
   --text-3: #71717a;
-  --text-4: #a1a1aa;
+  --text-4: #737379; /* 4.5:1 on every light surface: it carries real text, not just decoration */
   --primary: #171717;
   --primary-hover: #2a2a2a;
   --on-primary: #ffffff;
@@ -44,7 +44,7 @@
   --good-text: #15803d;
   --good-soft: #f0fdf4;
   --good-line: #bbf7d0;
-  --focus: 0 0 0 3px rgba(10, 10, 10, 0.1);
+  --focus: 0 0 0 0 transparent; /* no focus ring: fields show focus with their border instead */
   --overlay: rgba(10, 10, 10, 0.28);
   --shadow-xs: 0 1px 2px rgba(10, 10, 10, 0.05);
   --shadow-sm: 0 1px 3px rgba(10, 10, 10, 0.07), 0 1px 2px rgba(10, 10, 10, 0.04);
@@ -69,11 +69,11 @@
     --text: #fafafa;
     --text-2: #d4d4d8;
     --text-3: #a1a1aa;
-    --text-4: #63636b;
+    --text-4: #84848c; /* 4.5:1 on every dark surface */
     --primary: #fafafa;
     --primary-hover: #e4e4e7;
     --on-primary: #0a0a0a;
-    --danger: #e5484d;
+    --danger: #d93a40; /* white text on it stays at 4.5:1 */
     --danger-hover: #ef5f63;
     --danger-text: #ff8a8a;
     --danger-soft: #2a1213;
@@ -85,7 +85,7 @@
     --good-text: #6ee7a0;
     --good-soft: #0e2216;
     --good-line: #1c4a2c;
-    --focus: 0 0 0 3px rgba(255, 255, 255, 0.14);
+    --focus: 0 0 0 0 transparent;
     --overlay: rgba(0, 0, 0, 0.6);
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
@@ -109,11 +109,11 @@
   --text: #fafafa;
   --text-2: #d4d4d8;
   --text-3: #a1a1aa;
-  --text-4: #63636b;
+  --text-4: #84848c; /* 4.5:1 on every dark surface */
   --primary: #fafafa;
   --primary-hover: #e4e4e7;
   --on-primary: #0a0a0a;
-  --danger: #e5484d;
+  --danger: #d93a40; /* white text on it stays at 4.5:1 */
   --danger-hover: #ef5f63;
   --danger-text: #ff8a8a;
   --danger-soft: #2a1213;
@@ -125,7 +125,7 @@
   --good-text: #6ee7a0;
   --good-soft: #0e2216;
   --good-line: #1c4a2c;
-  --focus: 0 0 0 3px rgba(255, 255, 255, 0.14);
+  --focus: 0 0 0 0 transparent;
   --overlay: rgba(0, 0, 0, 0.6);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
@@ -240,8 +240,7 @@ a {
 }
 
 :focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
+  outline: none;
 }
 
 * {
@@ -855,7 +854,7 @@ select.input-sm.select,
   border: 0;
   border-radius: 7px;
   background: color-mix(in oklab, var(--tone) 14%, transparent);
-  color: color-mix(in oklab, var(--tone) 88%, var(--badge-ink));
+  color: color-mix(in oklab, var(--tone) 70%, var(--badge-ink)); /* 4.5:1 for 12px text in every tone */
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -1439,23 +1438,13 @@ select.input-sm.select,
 .sk-card-md {
   height: 130px;
 }
-.lock-backdrop {
-  filter: blur(28px) saturate(1.15);
-  transform: scale(1.06); /* hides the blur's soft edges */
-}
+
 .lock-backdrop-live {
   display: block;
   background: var(--bg);
-  animation: lock-blur 0.5s cubic-bezier(0.2, 0, 0, 1) both;
 }
 .lock-backdrop-live ~ .lock-overlay {
   animation: lock-tint 0.5s cubic-bezier(0.2, 0, 0, 1) both;
-}
-@keyframes lock-blur {
-  from {
-    filter: blur(14px) saturate(1);
-    transform: scale(1.02);
-  }
 }
 @keyframes lock-tint {
   from {
@@ -1482,7 +1471,8 @@ select.input-sm.select,
 .lock-overlay {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--bg) 45%, transparent);
+  /* The app as it was, just dimmed: no blur, nothing extra. */
+  background: rgba(0, 0, 0, 0.9); /* only the faintest outline of the app shows through */
 }
 .lock-center {
   position: relative;
@@ -1792,7 +1782,8 @@ svg.dial-layer {
   text-align: left;
   transition: background-color 0.12s, color 0.12s;
 }
-.nav-item:hover {
+.nav-item:hover,
+.nav-item[data-menu-open] {
   background: var(--bg-hover);
   color: var(--text);
 }
@@ -1803,7 +1794,8 @@ svg.dial-layer {
 }
 .nav-item:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  /* Inside the row's own edge: list rows sit flush, so an outer ring gets clipped and looks heavy. */
+  box-shadow: none;
 }
 .nav-icon {
   display: inline-grid;
@@ -2016,7 +2008,10 @@ svg.dial-layer {
   -webkit-tap-highlight-color: transparent;
 }
 .entry-row:hover,
-.entry-row[data-menu-open] {
+.entry-row[data-menu-open],
+.audit-row[data-menu-open],
+.trash-row[data-menu-open],
+.dupe-row[data-menu-open] {
   background: var(--bg-hover);
 }
 .entry-row[aria-current='true'] {
@@ -2025,7 +2020,8 @@ svg.dial-layer {
 }
 .entry-row:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  /* Inside the row's own edge: list rows sit flush, so an outer ring gets clipped and looks heavy. */
+  box-shadow: none;
 }
 .entry-row-text {
   display: grid;
@@ -3862,7 +3858,8 @@ svg.dial-layer {
 }
 .audit-side {
   position: sticky;
-  top: 0;
+  top: 24px; /* stays clear of the pane's edge while the list scrolls under it */
+  align-self: start;
   display: grid;
   gap: 14px;
 }
@@ -4022,7 +4019,8 @@ svg.dial-layer {
 .mono-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* Whole logo, never cropped: wide ones (H&M, say) used to lose their edges. */
+  object-fit: contain;
   user-select: none;
 }
 .editor-identity {
@@ -4734,7 +4732,8 @@ svg.dial-layer {
   gap: 22px;
 }
 .editor-identity {
-  align-items: center;
+  /* Icon, name field and star sit on the same line: the field's bottom edge. */
+  align-items: flex-end;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -4866,6 +4865,7 @@ svg.dial-layer {
 }
 .dialog-editor .editor {
   gap: 18px;
+  align-content: start; /* spare height stays below the fields, never spread between them */
 }
 .dialog-editor .editor-section {
   gap: 14px;
@@ -4878,12 +4878,12 @@ svg.dial-layer {
   padding-bottom: 18px;
 }
 .dialog-editor .icon-picker .mono-lg {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
 }
 .dialog-editor .input-lg {
-  height: 40px;
+  height: 44px; /* same height as the icon beside it */
   font-size: 14.5px;
   font-weight: 500;
 }
@@ -4895,7 +4895,7 @@ svg.dial-layer {
   font-size: 12.5px;
   font-weight: 500;
 }
-.dialog-editor .input:not(textarea) {
+.dialog-editor .input:not(textarea):not(.input-lg) {
   height: 38px;
 }
 .dialog-editor .field-pair {
@@ -4915,6 +4915,7 @@ svg.dial-layer {
 /* Favorite star beside the item name, level with the input. */
 .editor-identity > .tt-anchor {
   align-self: flex-end;
+  margin-bottom: 2px; /* 40px star centred on the 44px field */
 }
 .editor-fav {
   width: 40px;
@@ -5309,10 +5310,15 @@ svg.dial-layer {
 }
 
 /* Right-click menu: placed at the pointer, so it's fixed rather than hung under a trigger. */
+.menu [role^='menuitem']:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: none;
+}
 .menu-context {
   position: fixed;
   top: auto;
-  z-index: 90;
+  z-index: 150; /* above dialogs (100), below toasts (200) */
   width: 224px; /* fixed: wide enough to breathe, and the same for every item */
   min-width: 0;
   transform-origin: top left;
@@ -5413,21 +5419,103 @@ svg.dial-layer {
 
 .trash-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  --t-login: #3b82f6;
+  --t-note: #f59e0b;
+  --t-apiKey: #8b5cf6;
+  --t-recovery: #14b8a6;
+}
+.trash-total {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.trash-total strong {
+  font-size: 34px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.trash-total span {
+  color: var(--text-3);
+  font-size: 13px;
+}
+.trash-bar {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+}
+.trash-bar span {
+  min-width: 6px;
+  border-radius: 999px;
+}
+.trash-bar [data-type='login'],
+.trash-kinds [data-type='login'] .trash-dot {
+  background: var(--t-login);
+}
+.trash-bar [data-type='note'],
+.trash-kinds [data-type='note'] .trash-dot {
+  background: var(--t-note);
+}
+.trash-bar [data-type='apiKey'],
+.trash-kinds [data-type='apiKey'] .trash-dot {
+  background: var(--t-apiKey);
+}
+.trash-bar [data-type='recovery'],
+.trash-kinds [data-type='recovery'] .trash-dot {
+  background: var(--t-recovery);
+}
+.trash-kinds {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.trash-kinds li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trash-kinds b {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.trash-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.trash-times {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.trash-times div {
+  display: flex;
+  justify-content: space-between;
   gap: 12px;
 }
-.trash-summary div {
-  display: grid;
-  gap: 2px;
+.trash-times dt {
+  color: var(--text-3);
 }
-.trash-summary strong {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+.trash-times dd {
+  margin: 0;
+  font-weight: 500;
+  text-align: right;
 }
-.trash-summary span {
+.trash-note {
   color: var(--text-3);
   font-size: 12.5px;
+  line-height: 1.5;
 }
 
 /* Connecting the browser extension */
@@ -5793,3 +5881,63 @@ svg.dial-layer {
     font-size: 26px;
   }
 }
+
+/* While Keys locks, the outgoing vault's dialogs, menus and palette vanish at once. */
+body[data-locking] .dialog-layer,
+body[data-locking] .palette-layer,
+body[data-locking] .menu {
+  display: none !important;
+}
+
+/* Menu items show where keyboard focus is, not just a faint hover tint. */
+.menu [role^='menuitem']:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Reused passwords, grouped: each card is one password and every login that shares it. */
+.reuse-groups {
+  display: grid;
+  gap: 14px;
+}
+.reuse-group {
+  scroll-margin-top: 16px;
+}
+.reuse-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 2px 8px;
+}
+.reuse-index {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.reuse-head div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.reuse-head strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.reuse-head span {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.audit-row:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+

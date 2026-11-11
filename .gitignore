@@ -5,3 +5,24 @@ dist
 .git
 tests/
 .impeccable/
+*.tsbuildinfo
+.env*
+*.sqlite
+*.sqlite-journal
+coverage/
+.github/
+*.zip
+CLAUDE.md
+AGENTS.md
+# Logs, editors, local env
+*.log
+npm-debug.log*
+.vscode/
+.idea/
+*.local
+*.sqlite-wal
+*.sqlite-shm
+Thumbs.db
+*.pem
+*.key
+extension/*.crx

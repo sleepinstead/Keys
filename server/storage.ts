@@ -194,11 +194,18 @@ export class Storage {
 
   private switchTo(file: string): void {
     const next = new Store(file); // throws before anything changes if it can't be opened
+    try {
+      // Remembered first: if that fails, keep using the current file, or a restart would quietly
+      // go back to it and seem to lose everything done since.
+      this.writePointer(file === this.defaultFile ? null : file);
+    } catch {
+      next.close();
+      throw new HttpError(500, 'Keys couldn’t remember the new location: its settings folder isn’t writable');
+    }
     this.current?.close();
     this.current = next;
     this.file = file;
     this.error = null;
-    this.writePointer(file === this.defaultFile ? null : file);
   }
 
   private readPointer(): string | null {

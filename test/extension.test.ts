@@ -78,6 +78,21 @@ test('pairing, autofill and locking through the extension API', async () => {
     assert.equal((await ext('GET', `/pair/${req.requestId}`)).body.status, 'expired', 'the token is handed over once');
     assert.equal((await app('GET', '/browsers')).body.length, 1);
     assert.equal(JSON.stringify((await app('GET', '/browsers')).body).includes(token), false, 'the app never sees the token');
+
+    // Offering to save: check says what saving would do, save stores or updates the login.
+    const signIn = 'https://github.com/login';
+    assert.equal((await ext('POST', '/save/check', { url: signIn, username: 'me', password: 'gh-secret' })).body.status, 'same');
+    assert.equal((await ext('POST', '/save/check', { url: signIn, username: 'me', password: 'gh-new' })).body.status, 'update');
+    assert.equal((await ext('POST', '/save/check', { url: signIn, username: 'other', password: 'x' })).body.status, 'new');
+    assert.equal((await ext('POST', '/save', { url: signIn, username: 'me', password: 'gh-new' })).body.status, 'updated');
+    const updated = (await app('GET', `/entries/${gh}`)).body;
+    assert.equal(updated.password, 'gh-new');
+    assert.equal(updated.history[0].password, 'gh-secret', 'the old password goes to history');
+    const savedNew = (await ext('POST', '/save', { url: 'https://new.example/signup', username: 'fresh', password: 'pw-1' })).body;
+    assert.equal(savedNew.status, 'saved');
+    const made = (await app('GET', `/entries/${savedNew.id}`)).body;
+    assert.deepEqual([made.title, made.url, made.username], ['new.example', 'new.example', 'fresh']);
+    assert.equal((await ext('POST', '/save', { url: 'chrome://settings', password: 'x' })).status, 400, 'only websites');
     assert.ok(!ctx.store.getMeta('browser_pairings')!.includes(token), 'only a hash is stored');
 
     // Unlocked: matches for the page, without passwords.
@@ -86,11 +101,11 @@ test('pairing, autofill and locking through the extension API', async () => {
     const page = (await ext('GET', '/logins?url=' + encodeURIComponent('https://github.com/login'))).body.logins;
     assert.deepEqual(page.map((l: any) => l.title), ['GitHub']);
     assert.equal(page[0].password, undefined);
-    assert.equal((await ext('GET', '/logins?all=1&url=' + encodeURIComponent('https://github.com/'))).body.logins.length, 2);
+    assert.equal((await ext('GET', '/logins?all=1&url=' + encodeURIComponent('https://github.com/'))).body.logins.length, 3, 'GitHub, Bank and the one just saved');
 
     // Filling only works on the login's own site.
     const filled = await ext('POST', '/fill', { id: gh, url: 'https://github.com/login' });
-    assert.deepEqual(filled.body, { username: 'me', password: 'gh-secret' });
+    assert.deepEqual(filled.body, { username: 'me', password: 'gh-new' });
     assert.equal((await ext('POST', '/fill', { id: gh, url: 'https://evil.example/login' })).body.code, 'WRONG_SITE');
 
     // Lock from the extension: the app's session ends too, and nothing can be read.
@@ -99,7 +114,24 @@ test('pairing, autofill and locking through the extension API', async () => {
     assert.equal((await ext('GET', '/logins?url=https://github.com/')).body.code, 'LOCKED');
     assert.equal((await ext('POST', '/unlock', { secret: 'wrong' })).status, 401);
     assert.equal((await ext('POST', '/unlock', { secret: MASTER })).body.unlocked, true);
-    assert.equal((await ext('POST', '/fill', { id: gh, url: 'https://github.com/' })).body.password, 'gh-secret');
+    assert.equal((await ext('POST', '/fill', { id: gh, url: 'https://github.com/' })).body.password, 'gh-new', 'the saved update is what fills');
+
+    // The token is tied to the extension that paired: copied elsewhere, it's refused.
+    assert.equal((await ext('GET', '/status', undefined, { origin: 'chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba' })).body.code, 'NOT_PAIRED');
+    assert.equal((await ext('GET', '/status')).status, 200);
+    // Only an extension can start pairing (no Origin, no request).
+    const bare = await fetch(base + '/extension/pair', { method: 'POST', headers: { 'content-type': 'application/json', 'x-keys-extension': '1' }, body: '{}' });
+    assert.equal(bare.status, 403);
+
+    // A subdomain never overwrites its parent site's saved password; it gets a login of its own.
+    const fromSub = (await ext('POST', '/save', { url: 'https://gist.github.com/login', username: 'me', password: 'sub-pass' })).body;
+    assert.equal(fromSub.status, 'saved');
+    assert.equal((await ext('POST', '/fill', { id: gh, url: 'https://github.com/' })).body.password, 'gh-new', 'the parent login is untouched');
+
+    // A token only works from the extension it was issued to.
+    assert.equal((await ext('GET', '/status', undefined, { origin: 'chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba' })).body.code, 'NOT_PAIRED');
+    // A subdomain never overwrites its parent site's saved password.
+    assert.equal((await ext('POST', '/save/check', { url: 'https://evil.github.com/login', username: 'me', password: 'x' })).body.status, 'new');
 
     // Removing the browser in the app cuts it off.
     session = '';

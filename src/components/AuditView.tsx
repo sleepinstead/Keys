@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ChevronRight, Clock3, Copy as CopyIcon, KeyRound, Layers, Radar, RefreshCw, ShieldAlert, ShieldX, Zap } from 'lucide-react';
+import { AtSign, Check, ChevronRight, RotateCcw, Clock3, Copy as CopyIcon, ExternalLink, KeyRound, Layers, PanelRightOpen, Radar, RefreshCw, ShieldAlert, ShieldX, Trash2, Zap } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
-import { useSettings, useToast } from '../context.tsx';
+import { useCopy, useSettings, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
 import type { AuditIssue, AuditItem, AuditReport, DuplicateGroup } from '../../shared/types.ts';
-import { plural, timeAgo } from '../util.ts';
-import { Button, Dialog, EmptyState, Monogram, Spinner, STRENGTH_WORDS } from './ui.tsx';
+import { plural, safeHref, timeAgo } from '../util.ts';
+import { Button, ContextMenu, Dialog, EmptyState, Monogram, Spinner, STRENGTH_WORDS, useContextMenu } from './ui.tsx';
+import type { MenuItem } from './ui.tsx';
 
 const ISSUES: { key: AuditIssue; label: string; explain: string; icon: ReactNode; tone: string }[] = [
   { key: 'breached', label: 'Breached', explain: 'Seen in public data breaches. Change these first.', icon: <ShieldX size={18} />, tone: 'bad' },
@@ -102,7 +103,7 @@ function issueSummary(kind: AuditIssue, count: number, report: AuditReport, outd
 }
 
 /** Review exact copies of the same login and remove the extras. One copy of each always stays. */
-function DuplicatesDialog({ open, groups, onClose, onRemoved }: { open: boolean; groups: DuplicateGroup[]; onClose: () => void; onRemoved: (n: number) => void }) {
+function DuplicatesDialog({ open, groups, onClose, onRemoved, onOpen }: { open: boolean; groups: DuplicateGroup[]; onClose: () => void; onRemoved: (n: number) => void; onOpen: (id: string) => void }) {
   // By default, remove every older copy that holds nothing the newest one lacks.
   const suggested = () => new Set(groups.flatMap((g) => g.items.slice(1).filter((i) => !i.extra).map((i) => i.id)));
   const [remove, setRemove] = useState<Set<string>>(suggested);
@@ -114,6 +115,34 @@ function DuplicatesDialog({ open, groups, onClose, onRemoved }: { open: boolean;
       setError(null);
     }
   }, [open, groups]);
+
+  const rowMenu = useContextMenu<{ group: DuplicateGroup; id: string }>();
+  /** Keep just this copy of the account: every other copy in its group is marked for removal. */
+  const keepOnly = (group: DuplicateGroup, id: string) =>
+    setRemove((prev) => {
+      const next = new Set(prev);
+      for (const i of group.items) i.id === id ? next.delete(i.id) : next.add(i.id);
+      return next;
+    });
+  const dupeMenu = ({ group, id }: { group: DuplicateGroup; id: string }): MenuItem[] => {
+    const removing = remove.has(id);
+    const kept = group.items.filter((i) => !remove.has(i.id)).length;
+    return [
+      { label: 'Keep only this copy', icon: <Check size={15} />, onSelect: () => keepOnly(group, id) },
+      removing
+        ? { label: 'Keep this copy', icon: <RotateCcw size={15} />, onSelect: () => toggle(id) }
+        : { label: 'Remove this copy', icon: <Trash2 size={15} />, danger: true, disabled: kept === 1, onSelect: () => toggle(id) },
+      {
+        label: 'Open item',
+        icon: <PanelRightOpen size={15} />,
+        separatorBefore: true,
+        onSelect: () => {
+          onClose();
+          onOpen(id);
+        },
+      },
+    ];
+  };
 
   const toggle = (id: string) =>
     setRemove((prev) => {
@@ -172,7 +201,12 @@ function DuplicatesDialog({ open, groups, onClose, onRemoved }: { open: boolean;
                   const last = !removing && kept === 1;
                   return (
                     <li key={item.id}>
-                      <label className="dupe-row" data-removing={removing || undefined}>
+                      <label
+                        className="dupe-row"
+                        data-removing={removing || undefined}
+                        data-menu-open={rowMenu.menu?.target.id === item.id || undefined}
+                        onContextMenu={(ev) => !busy && rowMenu.open(ev, { group: g, id: item.id })}
+                      >
                         <input type="checkbox" checked={removing} disabled={last || busy} onChange={() => toggle(item.id)} aria-label={`Remove ${item.title}, edited ${timeAgo(item.updatedAt)}`} />
                         <span className="dupe-row-title">{item.title}</span>
                         <span className="dupe-row-meta">
@@ -193,6 +227,13 @@ function DuplicatesDialog({ open, groups, onClose, onRemoved }: { open: boolean;
           {error}
         </p>
       )}
+      <ContextMenu
+        at={rowMenu.menu}
+        items={rowMenu.menu ? dupeMenu(rowMenu.menu.target) : []}
+        label="Actions for this copy"
+        onClose={rowMenu.close}
+        returnTo={rowMenu.menu?.row}
+      />
     </Dialog>
   );
 }
@@ -253,6 +294,53 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
   const [run, setRun] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
+  const copy = useCopy();
+  const [menu, setMenu] = useState<{ x: number; y: number; item: AuditItem; row: HTMLElement } | null>(null);
+
+  const openMenu = (e: MouseEvent<HTMLButtonElement>, item: AuditItem) => {
+    e.preventDefault(); // the menu only; the item stays closed
+    const r = e.currentTarget.getBoundingClientRect();
+    const keyboard = e.clientX === 0 && e.clientY === 0; // the menu key has no pointer position
+    setMenu({ x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, item, row: e.currentTarget });
+  };
+
+  /** The same actions as the item list, plus going straight to the site to change the password. */
+  const menuItems = (item: AuditItem): MenuItem[] => {
+    const href = safeHref(item.url);
+    const items: MenuItem[] = [{ label: 'Open item', icon: <PanelRightOpen size={15} />, onSelect: () => onOpen(item.id) }];
+
+    if (item.username) items.push({ label: 'Copy username', icon: <AtSign size={15} />, separatorBefore: true, onSelect: () => void copy(item.username, 'username', false) });
+    items.push({
+      label: 'Copy password',
+      icon: <KeyRound size={15} />,
+      separatorBefore: !item.username,
+      onSelect: async () => {
+        try {
+          await copy((await api.entry(item.id)).password, 'password');
+        } catch (err) {
+          toast(errorMessage(err), 'error');
+        }
+      },
+    });
+    if (href) items.push({ label: 'Open website to change it', icon: <ExternalLink size={15} />, onSelect: () => window.open(href, '_blank', 'noopener,noreferrer') });
+    items.push({
+      label: 'Delete',
+      icon: <Trash2 size={15} />,
+      danger: true,
+      separatorBefore: true,
+      onSelect: async () => {
+        try {
+          await api.deleteEntry(item.id);
+          toast(`Moved ${item.title} to Recently deleted`);
+          onEntriesChanged();
+          await load();
+        } catch (err) {
+          toast(errorMessage(err), 'error');
+        }
+      },
+    });
+    return items;
+  };
 
   const load = async (manual = false) => {
     setLoading(true);
@@ -305,6 +393,35 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
   const { totals } = report;
   const flagged = report.items.filter((i) => i.issues.length > 0);
   const shown = filter === 'all' ? flagged : report.items.filter((i) => i.issues.includes(filter));
+    /** One login in the audit, as a row that opens it (right-click for more). */
+  const renderRow = (item: AuditItem, only?: AuditIssue[]) =>
+                  <button
+      type="button"
+      className="audit-row"
+      onClick={() => onOpen(item.id)}
+      onContextMenu={(ev) => openMenu(ev, item)}
+      data-menu-open={menu?.item.id === item.id || undefined}
+    >
+      {!settings.hideIcons.login && <Monogram title={item.title} type="login" icon={item.icon} />}
+      <span className="audit-main">
+        <span className="entry-row-title">{item.title}</span>
+        <span className="entry-row-sub">{item.username || item.url}</span>
+      </span>
+      <span className="audit-issues">
+        {item.issues.filter((issue) => !only || only.includes(issue)).map((issue) => (
+          <span key={issue} className="badge" data-tone={issue === 'weak' && item.score <= 1 ? 'bad' : ISSUES.find((i) => i.key === issue)!.tone}>
+            {issueLabel(item, issue)}
+          </span>
+        ))}
+      </span>
+    </button>;
+
+  // Logins sharing a password, biggest group first, so "Reused" shows exactly where each one is used.
+  const byId = new Map(report.items.map((i) => [i.id, i]));
+  const reuseGroups = report.reusedGroups
+    .map((ids) => ({ items: ids.map((id) => byId.get(id)).filter((i): i is AuditItem => Boolean(i)) }))
+    .filter((g) => g.items.length > 1)
+    .sort((a, b) => b.items.length - a.items.length);
   const lastCheck = report.items.reduce<number | null>((m, i) => (i.breachCheckedAt && (!m || i.breachCheckedAt > m) ? i.breachCheckedAt : m), null);
 
   return (
@@ -355,7 +472,7 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
                     className="audit-issue"
                     data-kind={i.key}
                     aria-pressed={filter === i.key}
-                    disabled={count === 0}
+                    disabled={count === 0 && filter !== i.key} // an active filter can always be turned off
                     onClick={() => setFilter(filter === i.key ? 'all' : i.key)}
                   >
                     <span className="health-dot" aria-hidden="true" />
@@ -391,6 +508,7 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
         open={reviewing}
         groups={report.duplicateGroups}
         onClose={() => setReviewing(false)}
+        onOpen={onOpen}
         onRemoved={(n) => {
           setReviewing(false);
           toast(`Removed ${plural(n, 'duplicate login')}`);
@@ -398,6 +516,7 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
           void load();
         }}
       />
+      <ContextMenu at={menu} items={menu ? menuItems(menu.item) : []} label={menu ? `Actions for ${menu.item.title}` : 'Actions'} onClose={() => setMenu(null)} returnTo={menu?.row} />
       <AnimatePresence>
         {error && (
           <motion.p className="form-error" role="alert" {...fade}>
@@ -432,26 +551,37 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
               </p>
             </EmptyState>
           ) : (
+            filter === 'reused' ? (
+              <div className="reuse-groups" key="reused">
+                {reuseGroups.map((g, n) => (
+                  <section key={g.items[0]!.id} className="reuse-group" id={`reuse-${g.items[0]!.id}`}>
+                    <header className="reuse-head">
+                      <span className="reuse-index">{n + 1}</span>
+                      <div>
+                        <strong>Same password on {g.items.length} logins</strong>
+                        <span>
+                          {STRENGTH_WORDS[g.items[0]!.score]} password
+                          {g.items[0]!.breachCount ? ` · in breaches ${g.items[0]!.breachCount.toLocaleString()}×` : ''} · change it on all but one of these sites
+                        </span>
+                      </div>
+                    </header>
+                    <ul className="group audit-list">
+                      {g.items.map((item) => (
+                        <li key={item.id}>
+                          {renderRow(item, ['breached', 'weak'])}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            ) : (
             <ul className="group audit-list" key={filter}>
               {shown.map((item) => (
-                <li key={item.id}>
-                  <button type="button" className="audit-row" onClick={() => onOpen(item.id)}>
-                    {!settings.hideIcons.login && <Monogram title={item.title} type="login" icon={item.icon} />}
-                    <span className="audit-main">
-                      <span className="entry-row-title">{item.title}</span>
-                      <span className="entry-row-sub">{item.username || item.url}</span>
-                    </span>
-                    <span className="audit-issues">
-                      {item.issues.map((issue) => (
-                        <span key={issue} className="badge" data-tone={issue === 'weak' && item.score <= 1 ? 'bad' : ISSUES.find((i) => i.key === issue)!.tone}>
-                          {issueLabel(item, issue)}
-                        </span>
-                      ))}
-                    </span>
-                  </button>
-                </li>
+                <li key={item.id}>{renderRow(item)}</li>
               ))}
             </ul>
+            )
           )}
         </section>
       )}

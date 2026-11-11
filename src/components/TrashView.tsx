@@ -5,9 +5,10 @@ import { api, errorMessage } from '../api.ts';
 import { useSettings, useToast } from '../context.tsx';
 import { encodePattern } from '../../shared/credential.ts';
 import type { Credential, TrashedEntry } from '../../shared/types.ts';
-import { plural, timeAgo } from '../util.ts';
+import { plural, timeAgo, TYPE_LABELS } from '../util.ts';
 import { CREDENTIAL_NAMES, PatternInput } from './credential.tsx';
-import { Button, Dialog, EmptyState, IconButton, Monogram, OtpInput, Spinner } from './ui.tsx';
+import { Button, ContextMenu, Dialog, EmptyState, IconButton, Monogram, OtpInput, Spinner, useContextMenu } from './ui.tsx';
+import type { MenuItem } from './ui.tsx';
 
 /** Asks for the vault's password or PIN before deleting items for good. */
 function PurgeDialog({
@@ -97,6 +98,55 @@ function PurgeDialog({
   );
 }
 
+/** What's in the bin at a glance: how much, of what kind, and how long it has been there. */
+function TrashSummary({ items }: { items: TrashedEntry[] }) {
+  const byType = (Object.keys(TYPE_LABELS) as TrashedEntry['type'][])
+    .map((t) => ({ t, n: items.filter((i) => i.type === t).length }))
+    .filter((x) => x.n > 0);
+  const newest = items[0]!.deletedAt;
+  const oldest = items[items.length - 1]!.deletedAt;
+  const week = items.filter((i) => Date.now() - i.deletedAt < 7 * 86_400_000).length;
+  return (
+    <section className="card card-pad trash-summary">
+      <div className="trash-total">
+        <strong>{items.length}</strong>
+        <span>{items.length === 1 ? 'item can be restored' : 'items can be restored'}</span>
+      </div>
+      <div className="trash-bar" aria-hidden="true">
+        {byType.map(({ t, n }) => (
+          <span key={t} data-type={t} style={{ flexGrow: n }} />
+        ))}
+      </div>
+      <ul className="trash-kinds">
+        {byType.map(({ t, n }) => (
+          <li key={t} data-type={t}>
+            <span className="trash-dot" aria-hidden="true" />
+            {n === 1 ? TYPE_LABELS[t].one : TYPE_LABELS[t].many}
+            <b>{n}</b>
+          </li>
+        ))}
+      </ul>
+      <dl className="trash-times">
+        <div>
+          <dt>Last deleted</dt>
+          <dd>{timeAgo(newest)}</dd>
+        </div>
+        {items.length > 1 && (
+          <div>
+            <dt>Oldest here</dt>
+            <dd>{timeAgo(oldest)}</dd>
+          </div>
+        )}
+        <div>
+          <dt>This week</dt>
+          <dd>{plural(week, 'item')}</dd>
+        </div>
+      </dl>
+      <p className="trash-note">Nothing here is erased on its own. Items stay until you restore them or delete them permanently.</p>
+    </section>
+  );
+}
+
 export function TrashView({ onChanged }: { onChanged: () => void }) {
   const { settings } = useSettings();
   const toast = useToast();
@@ -105,6 +155,11 @@ export function TrashView({ onChanged }: { onChanged: () => void }) {
   const [purging, setPurging] = useState<TrashedEntry[] | 'all' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const rowMenu = useContextMenu<TrashedEntry>();
+  const trashMenu = (item: TrashedEntry): MenuItem[] => [
+    { label: 'Restore', icon: <RotateCcw size={15} />, onSelect: () => void restore([item]) },
+    { label: 'Delete permanently…', icon: <Trash2 size={15} />, danger: true, separatorBefore: true, onSelect: () => setPurging([item]) },
+  ];
 
   const load = () =>
     api
@@ -162,7 +217,12 @@ export function TrashView({ onChanged }: { onChanged: () => void }) {
       ) : (
         <ul className="group trash-list">
           {items.map((item) => (
-            <li key={item.id} className="trash-row">
+            <li
+              key={item.id}
+              className="trash-row"
+              data-menu-open={rowMenu.menu?.target.id === item.id || undefined}
+              onContextMenu={(ev) => !busy && rowMenu.open(ev, item)}
+            >
               {!settings.hideIcons[item.type] && <Monogram title={item.title} type={item.type} icon={item.icon} />}
               <span className="trash-main">
                 <span className="entry-row-title">{item.title}</span>
@@ -180,20 +240,16 @@ export function TrashView({ onChanged }: { onChanged: () => void }) {
           ))}
         </ul>
       )}
+      <ContextMenu
+        at={rowMenu.menu}
+        items={rowMenu.menu ? trashMenu(rowMenu.menu.target) : []}
+        label={rowMenu.menu ? `Actions for ${rowMenu.menu.target.title}` : 'Actions'}
+        onClose={rowMenu.close}
+        returnTo={rowMenu.menu?.row}
+      />
         </div>
         <aside className="audit-side">
-          {items.length > 0 && (
-            <section className="card card-pad trash-summary">
-              <div>
-                <strong>{items.length}</strong>
-                <span>{items.length === 1 ? 'item' : 'items'}</span>
-              </div>
-              <div>
-                <strong>{timeAgo(items[items.length - 1]!.deletedAt)}</strong>
-                <span>oldest deleted</span>
-              </div>
-            </section>
-          )}
+          {items.length > 0 && <TrashSummary items={items} />}
           <section className="card card-pad">
             <h2 className="side-title">How it works</h2>
             <dl className="gen-guide">

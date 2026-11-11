@@ -1,4 +1,4 @@
-import type { Category, EntryType } from '../shared/types.ts';
+import type { EntryType } from '../shared/types.ts';
 
 export const TYPE_LABELS: Record<EntryType, { one: string; many: string; inline: string }> = {
   login: { one: 'Login', many: 'Logins', inline: 'login' },
@@ -14,43 +14,6 @@ export const FIELD_LABELS: Record<EntryType, { username: string; password: strin
   recovery: { username: 'Account', password: 'Password', url: 'Website', notes: 'Notes' },
   note: { username: 'Username', password: 'Password', url: 'Website', notes: 'Note' },
 };
-
-/** Category colour slot 1–8 (0 = none), assigned by creation order. */
-export function categorySlot(categories: Category[], categoryId: string | null): number {
-  if (!categoryId) return 0;
-  const i = categories.findIndex((c) => c.id === categoryId);
-  return i < 0 ? 0 : (i % 8) + 1;
-}
-
-/** Hand-tuned pairs for item monograms: neighbouring hues so tiles read as one colour with depth. */
-const MONOGRAM_COLORS: [string, string][] = [
-  ['#5468ff', '#7b5cff'],
-  ['#0f9f9a', '#2bc4a0'],
-  ['#ef5a5a', '#ff8a5b'],
-  ['#e8842c', '#f3b33d'],
-  ['#8a4dff', '#c25cf5'],
-  ['#1d8fd6', '#4cc3f0'],
-  ['#d93f78', '#f472a8'],
-  ['#1f9d55', '#5cc98a'],
-  ['#4b5878', '#7482a8'],
-  ['#c94a1e', '#f0782f'],
-  ['#2563eb', '#6d6ff5'],
-  ['#0e7490', '#22a5c4'],
-];
-
-function hash(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
-
-export function monogramColors(seed: string): [string, string] {
-  return MONOGRAM_COLORS[hash(seed.toLowerCase()) % MONOGRAM_COLORS.length]!;
-}
-
-export function monogramSeed(title: string, url: string): string {
-  return hostname(url) || title || '?';
-}
 
 export function hostname(url: string): string {
   if (!url) return '';

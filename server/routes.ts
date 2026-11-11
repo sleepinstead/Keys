@@ -1,6 +1,6 @@
 import express from 'express';
 import type { Request, Response } from 'express';
-import { buildAuditReport, checkBreaches } from './audit.ts';
+import { buildAuditReport, checkBreaches, rateLogins } from './audit.ts';
 import type { RangeFetcher } from './audit.ts';
 import { fetchSiteIcon } from './favicon.ts';
 import { browse, Storage } from './storage.ts';
@@ -433,8 +433,27 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
 
   // -------------------------------------------------------------- audit
 
-  api.get('/audit', (req, res) => {
-    res.json(buildAuditReport(vault.listEntries(keyFor(req)), vault.getSettings()));
+  /**
+   * The audit, without freezing the server: new or changed passwords are rated in small slices,
+   * and each rating is kept inside its (encrypted) item so the next audit doesn't redo it.
+   */
+  const auditReport = async (req: Request) => {
+    const entries = vault.listEntries(keyFor(req));
+    const fresh = await rateLogins(entries);
+    const key = keyFor(req, false); // the session may have locked while rating
+    if (fresh.size) {
+      vault.store.transaction(() => {
+        for (const [id, strength] of fresh) {
+          // Skip anything edited while it was being rated: its rating would be for the old password.
+          if (vault.store.get('entries', id)) vault.patchEntryData(key, id, { strength }, (d) => d.password === entries.find((e) => e.id === id)?.password);
+        }
+      });
+    }
+    return buildAuditReport(entries, vault.getSettings());
+  };
+
+  api.get('/audit', async (req, res) => {
+    res.json(await auditReport(req));
   });
 
   let breachRun: Promise<unknown> | null = null;
@@ -470,7 +489,7 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
         }
       }
     });
-    res.json(buildAuditReport(vault.listEntries(liveKey), vault.getSettings()));
+    res.json(await auditReport(req));
   });
 
   // ------------------------------------------------------ import/export

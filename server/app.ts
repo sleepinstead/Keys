@@ -48,8 +48,14 @@ export function createApp(opts: AppOptions) {
   );
 
   if (opts.staticDir && fs.existsSync(path.join(opts.staticDir, 'index.html'))) {
+    // Built files have content hashes in their names, so they never change: cache them for good.
+    // The page itself always revalidates, so a new build shows up on the next load.
+    app.use('/assets', express.static(path.join(opts.staticDir, 'assets'), { index: false, immutable: true, maxAge: '1y' }));
     app.use(express.static(opts.staticDir, { index: false, maxAge: '1h' }));
-    app.get(/.*/, (_req, res) => res.sendFile(path.join(opts.staticDir!, 'index.html')));
+    app.get(/.*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(path.join(opts.staticDir!, 'index.html'));
+    });
   }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
@@ -61,6 +67,9 @@ export function createApp(opts: AppOptions) {
       res.status(413).json({ error: 'Request is too large' });
     } else if (err && typeof err === 'object' && 'type' in err && err.type === 'entity.parse.failed') {
       res.status(400).json({ error: 'Malformed JSON' });
+    } else if (err && typeof err === 'object' && 'errcode' in err && (err.errcode === 5 || err.errcode === 6)) {
+      // SQLITE_BUSY / SQLITE_LOCKED: another program held the file past the busy timeout.
+      res.status(503).json({ error: 'The database is busy (another program is using it). Try again in a moment.', code: 'BUSY' });
     } else {
       // Never echo internal errors (they could contain data); log a generic line only.
       console.error('Unexpected error:', err instanceof Error ? err.name + ': ' + err.message : 'unknown');

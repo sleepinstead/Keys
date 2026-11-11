@@ -13,6 +13,34 @@ function hostOf(url: string): string {
   }
 }
 
+/** What a strength rating depends on: the password and the hints it's checked against. */
+export function strengthKey(e: Entry): string {
+  return crypto.createHash('sha256').update(JSON.stringify([e.password, e.username, e.title, hostOf(e.url)])).digest('base64').slice(0, 22);
+}
+
+/**
+ * Rates every login that has no up-to-date rating yet, a few at a time, letting the server answer
+ * other requests in between (rating is slow: about 2–6 ms a password). Returns the new ratings.
+ */
+export async function rateLogins(entries: Entry[]): Promise<Map<string, NonNullable<Entry['strength']>>> {
+  const fresh = new Map<string, NonNullable<Entry['strength']>>();
+  let since = performance.now();
+  for (const e of entries) {
+    if (!AUDITED_TYPES.has(e.type) || !e.password) continue;
+    const key = strengthKey(e);
+    if (e.strength?.key === key) continue;
+    const r = checkStrength(e.password, [e.username, e.title, hostOf(e.url)]);
+    const rating = { key, score: r.score, crackTime: r.crackTime };
+    fresh.set(e.id, rating);
+    e.strength = rating;
+    if (performance.now() - since > 25) {
+      await new Promise((r) => setImmediate(r));
+      since = performance.now();
+    }
+  }
+  return fresh;
+}
+
 export function buildAuditReport(entries: Entry[], settings: Settings, now = Date.now()): AuditReport {
   const logins = entries.filter((e) => AUDITED_TYPES.has(e.type) && e.password.length > 0);
 
@@ -55,7 +83,8 @@ export function buildAuditReport(entries: Entry[], settings: Settings, now = Dat
     .sort((a, b) => b.items.length - a.items.length || a.site.localeCompare(b.site));
 
   const items: AuditItem[] = logins.map((e) => {
-    const strength = checkStrength(e.password, [e.username, e.title, hostOf(e.url)]);
+    const key = strengthKey(e);
+    const strength = e.strength?.key === key ? e.strength : checkStrength(e.password, [e.username, e.title, hostOf(e.url)]);
     const ageDays = Math.max(0, Math.floor((now - e.passwordUpdatedAt) / DAY));
     const issues: AuditIssue[] = [];
     if (e.breach && e.breach.count > 0) issues.push('breached');

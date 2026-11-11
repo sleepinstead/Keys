@@ -386,6 +386,8 @@ async function unlocked(state) {
   const search = h('input', { class: 'input', type: 'search', placeholder: `Search ${logins.length} ${logins.length === 1 ? 'login' : 'logins'}`, 'aria-label': 'Search logins', autofocus: matches.length === 0 });
   search.addEventListener('input', () => {
     const q = search.value.trim().toLowerCase();
+    // While searching, the results take the space of this site's logins.
+    search.closest('.body')?.toggleAttribute('data-searching', Boolean(q));
     const found = q ? logins.filter((l) => `${l.title} ${l.username} ${l.url}`.toLowerCase().includes(q)).slice(0, 30) : [];
     results.replaceChildren(
       ...(!q ? [] : found.length ? [h('ul', { class: 'group', 'aria-label': 'Search results' }, found.map((l) => loginRow(l, { ...ctx, canFill: l.matches })))] : [h('p', { class: 'empty' }, `Nothing matches “${search.value.trim()}”.`)]),
@@ -407,10 +409,12 @@ async function unlocked(state) {
     h(
       'div',
       { class: 'body' },
-      siteCard,
-      matches.length ? h('ul', { class: 'group', 'aria-label': `Logins for ${site}` }, matches.map((l) => loginRow(l, { ...ctx, canFill: true }))) : null,
+      // Search first: it's how you reach any login, not just this site's.
       h('label', { class: 'field' }, icon('search'), search),
       results,
+      siteCard,
+      matches.length ? h('ul', { class: 'group', 'aria-label': `Logins for ${site}` }, matches.map((l) => loginRow(l, { ...ctx, canFill: true }))) : null,
+      await savingPrefs(),
     ),
     h(
       'footer',
@@ -422,6 +426,7 @@ async function unlocked(state) {
           type: 'button',
           class: 'text-btn',
           onClick: async () => {
+            if (!window.confirm('Disconnect this browser from Keys? You’ll need to connect it again to fill passwords.')) return;
             await ask('keys:disconnect').catch(() => {});
             void render();
           },
@@ -429,6 +434,57 @@ async function unlocked(state) {
         'Disconnect',
       ),
     ),
+  );
+}
+
+/** Saving new logins: Keys asks, and Chrome's own saving can be turned off so you're not asked twice. */
+async function savingPrefs() {
+  const prefs = await ask('keys:prefs').catch(() => ({ askToSave: true, chromeSaving: null }));
+  const row = (label, sub, checked, onChange) => {
+    const input = h('input', { type: 'checkbox', class: 'switch', role: 'switch', checked: checked || null, 'aria-label': label });
+    input.addEventListener('change', () => onChange(input.checked).catch((err) => {
+      input.checked = !input.checked;
+      toast(err.message, true);
+    }));
+    return h('label', { class: 'pref' }, h('span', { class: 'pref-text' }, h('span', { class: 'pref-title' }, label), h('span', { class: 'pref-sub' }, sub)), input);
+  };
+  return h(
+    'div',
+    { class: 'prefs' },
+    row('Ask to save logins', 'After you sign in or sign up on a site', prefs.askToSave, (v) => ask('keys:set-prefs', { askToSave: v })),
+    prefs.chromeSaving === null
+      ? null
+      : row('Let Chrome save passwords too', 'Turn off so only Keys asks', prefs.chromeSaving, async (v) => {
+          // Asked for here, on the click itself (Chrome only shows the request after a user gesture).
+          if (!(await chrome.permissions.request({ permissions: ['privacy'] }))) throw new Error('Keys needs permission to change Chrome’s password saving');
+          await ask('keys:set-prefs', { chromeSaving: v });
+        }),
+    prefs.neverCount
+      ? h(
+          'div',
+          { class: 'pref' },
+          h(
+            'span',
+            { class: 'pref-text' },
+            h('span', { class: 'pref-title' }, `Never asking on ${prefs.neverCount} ${prefs.neverCount === 1 ? 'site' : 'sites'}`),
+            h('span', { class: 'pref-sub' }, 'From “Never for this site”'),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'text-btn',
+              onClick: async (e) => {
+                const item = e.currentTarget.closest('.pref'); // read before awaiting: currentTarget is gone after
+                await ask('keys:set-prefs', { clearNever: true });
+                item.remove();
+                toast('Keys will ask on every site again');
+              },
+            },
+            'Reset',
+          ),
+        )
+      : null,
   );
 }
 

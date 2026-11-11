@@ -92,8 +92,16 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((v) => v.trim() !== ''));
 }
 
+/**
+ * Spreadsheets run cells that start with = + - @ (or a tab/return) as formulas, so a saved username
+ * like "=WEBSERVICE(...)" could act when the export is opened. Those cells get a leading apostrophe,
+ * which spreadsheets hide and Keys strips again on import.
+ */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 function csvCell(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const safe = FORMULA_START.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function toCsv(rows: string[][]): string {
@@ -130,7 +138,10 @@ function fromCsv(text: string): PortableEntry[] {
     throw new HttpError(400, 'Unrecognised CSV: expected at least a "password" or "notes" column');
   }
   return rows.slice(1).map((r) => {
-    const get = (f: string) => (idx[f]! >= 0 ? (r[idx[f]!] ?? '') : '');
+    const get = (f: string) => {
+      const v = idx[f]! >= 0 ? (r[idx[f]!] ?? '') : '';
+      return v.startsWith("'") && FORMULA_START.test(v.slice(1)) ? v.slice(1) : v; // undo the export's guard
+    };
     const rawType = get('type').trim();
     const type: EntryType = ENTRY_TYPES.includes(rawType as EntryType)
       ? (rawType as EntryType)
@@ -290,6 +301,8 @@ export async function importVault(
   const { source, data } = await parseImport(content, password);
   const key = getKey();
   if (!Array.isArray(data.entries)) throw new HttpError(400, 'Import file has no entries');
+  if (data.entries.length > 100_000) throw new HttpError(413, 'That file has more than 100,000 items. Split it and import each part.');
+  if (Array.isArray(data.categories) && data.categories.length > 1000) throw new HttpError(413, 'That file has more than 1,000 categories');
 
   const fingerprint = (e: { type: string; title: string; username: string; password: string; url: string }) =>
     JSON.stringify([e.type, e.title.trim(), e.username.trim(), e.password, e.url.trim()]);
@@ -298,12 +311,14 @@ export async function importVault(
   let imported = 0;
   let skipped = 0;
   let categoriesCreated = 0;
-  const categoryIds = new Map<string, string>();
+  // Existing categories are read once; each lookup used to decrypt them all again.
+  const categoryIds = new Map(vault.listCategories(key).map((c) => [c.name.toLowerCase(), c.id]));
   const categoryFor = (name: string | null | undefined): string | null => {
     if (!name || typeof name !== 'string' || !name.trim()) return null;
     const norm = name.trim().slice(0, 60);
     const cached = categoryIds.get(norm.toLowerCase());
     if (cached) return cached;
+    if (categoriesCreated >= 1000) return null; // a file can't flood the sidebar
     const { category, created } = vault.findOrCreateCategory(key, norm);
     if (created) categoriesCreated++;
     categoryIds.set(norm.toLowerCase(), category.id);

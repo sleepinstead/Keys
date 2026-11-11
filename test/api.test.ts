@@ -354,3 +354,42 @@ test('starring or filing an item does not count as editing it', async () => {
     store.close();
   }
 });
+
+test('CSV exports guard against spreadsheet formulas and import back exactly', async () => {
+  const { toCsv, parseCsv } = await import('../server/importExport.ts');
+  const csv = toCsv([['title', 'username', 'password'], ['Site', '=HYPERLINK("x")', '+1-555']]);
+  assert.match(csv, /'=HYPERLINK/, 'a formula-looking cell is defused');
+  assert.deepEqual(parseCsv(csv)[1], ['Site', '\'=HYPERLINK("x")', "'+1-555"]);
+});
+
+test('audit ratings are remembered and redone only when a password changes', async () => {
+  const { rateLogins, strengthKey } = await import('../server/audit.ts');
+  const e = { id: 'a', type: 'login', title: 'Site', username: 'me', url: 'site.com', password: 'correct horse battery staple' } as never as Parameters<typeof strengthKey>[0];
+  assert.equal((await rateLogins([e])).size, 1, 'rated the first time');
+  assert.equal((await rateLogins([e])).size, 0, 'remembered after that');
+  e.password = 'password1';
+  const again = await rateLogins([e]);
+  assert.equal(again.size, 1, 'a new password is rated again');
+  assert.ok(again.get('a')!.score <= 1);
+});
+
+test('CSV export guards against spreadsheet formulas, and import undoes the guard', async () => {
+  const { createApp: make } = await import('../server/app.ts');
+  const app2 = make({ dbFile: ':memory:', allowedOrigins: [] });
+  try {
+    const key = await app2.vault.setup(MASTER);
+    app2.vault.createEntry(key, { type: 'login', title: 'Site', username: '=HYPERLINK("x")', password: '+1-pw', url: '', notes: '', codes: '', categoryId: null, favorite: false, icon: '', customFields: [] });
+    const { exportVault, importVault } = await import('../server/importExport.ts');
+    const csv = (await exportVault(app2.vault, key, 'csv')).content;
+    assert.ok(csv.includes(`'=HYPERLINK`), 'formula cell is neutralised');
+    assert.ok(csv.includes(`'+1-pw`));
+    const app3 = make({ dbFile: ':memory:', allowedOrigins: [] });
+    const key3 = await app3.vault.setup(MASTER);
+    await importVault(app3.vault, () => key3, csv);
+    const back = app3.vault.listEntries(key3)[0]!;
+    assert.deepEqual([back.username, back.password], ['=HYPERLINK("x")', '+1-pw'], 'round-trips unchanged');
+    app3.sessions.dispose();
+  } finally {
+    app2.sessions.dispose();
+  }
+});

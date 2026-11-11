@@ -70,7 +70,9 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
   const onRowClick = (ev: MouseEvent<HTMLButtonElement>, entry: EntrySummary) => {
     const from = anchor ?? (inSelection ? null : selectedId);
     if (ev.shiftKey && from) {
-      const [a, b] = [entries.findIndex((x) => x.id === from), entries.findIndex((x) => x.id === entry.id)].sort((x, y) => x - y);
+      const i = entries.findIndex((x) => x.id === from);
+      const j = entries.findIndex((x) => x.id === entry.id);
+      const [a, b] = [Math.min(i, j), Math.max(i, j)];
       if (a >= 0) {
         setChecked((prev) => new Set([...prev, ...entries.slice(a, b + 1).map((x) => x.id)]));
         setAnchor(entry.id);
@@ -147,7 +149,10 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
         label: e.favorite ? 'Remove from favorites' : 'Add to favorites',
         icon: e.favorite ? <StarOff size={15} /> : <Star size={15} />,
         separatorBefore: true,
-        onSelect: withEntry(e.id, async (full) => onChanged(await api.updateEntry(full.id, { ...full, favorite: !full.favorite }))),
+        onSelect: withEntry(e.id, async (full) => {
+          await api.updateEntries([full.id], { favorite: !full.favorite }); // the star only, never a stale copy
+          onChanged(await api.entry(full.id));
+        }),
       },
       {
         label: 'Delete',
@@ -302,7 +307,6 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
                       type="button"
                       className="entry-row"
                       aria-current={selectedId === e.id ? 'true' : undefined}
-                      aria-haspopup="menu"
                       aria-pressed={inSelection ? checked.has(e.id) : undefined}
                       data-menu-open={menu?.entry.id === e.id || undefined}
                       onClick={(ev) => onRowClick(ev, e)}

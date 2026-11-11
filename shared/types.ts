@@ -46,6 +46,11 @@ export interface EntryData {
   passwordUpdatedAt: number;
   history: PasswordHistoryItem[];
   breach: BreachResult | null;
+  /**
+   * The audit's strength rating, remembered so it isn't recomputed on every audit (it's slow).
+   * `key` fingerprints the password and the hints it was rated with; a mismatch means re-rate.
+   */
+  strength?: { key: string; score: number; crackTime: string };
 }
 
 export interface Entry extends EntryData {

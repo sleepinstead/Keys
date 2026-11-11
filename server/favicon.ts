@@ -1,5 +1,9 @@
 import dns from 'node:dns/promises';
+import { lookup as dnsLookup } from 'node:dns';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
+import { Readable } from 'node:stream';
 import { HttpError } from './validate.ts';
 
 /**
@@ -27,6 +31,7 @@ function isPrivateAddress(ip: string): boolean {
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) ||
+      (a === 192 && b === 0 && Number(ip.split('.')[2]) === 0) ||
       (a === 198 && (b === 18 || b === 19)) ||
       a >= 224
     );
@@ -39,6 +44,8 @@ function isPrivateAddress(ip: string): boolean {
     return isPrivateAddress(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
   }
   if (v6.startsWith('::ffff:')) return isPrivateAddress(v6.slice(7));
+  // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) can wrap any IPv4 address, private ones included.
+  if (v6.startsWith('64:ff9b:') || v6.startsWith('2002:')) return true;
   return v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe8') || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb') || v6.startsWith('ff');
 }
 
@@ -65,11 +72,44 @@ export function siteUrl(raw: string): URL {
   }
 }
 
+/**
+ * Resolves the host for the connection itself and refuses private addresses there. Checking the name
+ * first and then letting fetch() look it up again would leave a gap: a site could answer with a public
+ * address for the check and a local one for the request (DNS rebinding).
+ */
+const publicOnlyLookup: net.LookupFunction = (hostname, options, callback) => {
+  dnsLookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err, '', 0);
+    const list = addresses as { address: string; family: number }[];
+    if (!list.length || list.some((a) => isPrivateAddress(a.address))) {
+      return callback(Object.assign(new Error('That address is on your own network'), { code: 'EPRIVATE' }), '', 0);
+    }
+    if (options.all) return (callback as unknown as (e: null, a: typeof list) => void)(null, list);
+    callback(null, list[0]!.address, list[0]!.family);
+  });
+};
+
 const defaultFetcher: IconFetcher = (url) =>
-  fetch(url, {
-    redirect: 'manual',
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Keys-Password-Manager)', Accept: '*/*' },
+  new Promise((resolve, reject) => {
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.get(
+      url,
+      {
+        lookup: publicOnlyLookup,
+        timeout: TIMEOUT_MS,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Keys-Password-Manager)', Accept: '*/*' },
+      },
+      (res) => {
+        const headers = new Headers();
+        for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : v);
+        const status = res.statusCode ?? 502;
+        const empty = status === 204 || status === 304;
+        if (empty) res.resume();
+        resolve(new Response(empty ? null : (Readable.toWeb(res) as ReadableStream), { status, headers }));
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('The website took too long to answer')));
+    req.on('error', reject);
   });
 
 /** Follows redirects by hand so every hop is checked against the private-address rule. */

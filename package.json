@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "npm run typecheck && vite build",
-    "start": "NODE_ENV=production node server/index.ts",
+    "start": "node server/index.ts --production",
     "typecheck": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json",
     "test": "node --test \"test/**/*.test.ts\""
   },
@@ -32,7 +32,6 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
-    "concurrently": "^10.0.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.6"
   }

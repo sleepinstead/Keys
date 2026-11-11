@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { LOCK_EVENT } from './api.ts';
 import type { ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CircleAlert, CircleCheck, Trash2 } from 'lucide-react';
@@ -27,9 +28,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((t) => [...t.slice(-2), { id, text, tone }]);
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === 'error' ? 6000 : 3000);
   }, []);
+  // Toasts can name items ("Moved GitHub to Recently deleted"): gone the moment Keys locks.
+  useEffect(() => {
+    const clear = () => setToasts([]);
+    window.addEventListener(LOCK_EVENT, clear);
+    return () => window.removeEventListener(LOCK_EVENT, clear);
+  }, []);
   return (
     <ToastCtx.Provider value={push}>
       {children}
+      {/* Errors are announced right away (role=alert); confirmations politely. */}
+      <div className="visually-hidden" role="alert">
+        {toasts.filter((t) => t.tone === 'error').at(-1)?.text}
+      </div>
       <div className="toasts" role="status" aria-live="polite">
         <AnimatePresence initial={false}>
           {toasts.map((t) => (
@@ -85,6 +96,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     resolver.current = null;
     setOpen(false);
   };
+  // A question about the vault ("Delete the Banking category?") doesn't stay up over the lock screen.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    const onLock = () => closeRef.current(false);
+    window.addEventListener(LOCK_EVENT, onLock);
+    return () => window.removeEventListener(LOCK_EVENT, onLock);
+  }, []);
 
   return (
     <ConfirmCtx.Provider value={confirm}>

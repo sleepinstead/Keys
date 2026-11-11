@@ -142,6 +142,7 @@ export function CommandPalette({
               <input
                 ref={input}
                 className="palette-input"
+                aria-label="Search items and commands"
                 placeholder="Search items or type a command"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}

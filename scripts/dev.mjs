@@ -10,8 +10,9 @@ const children = [
 let code = 0;
 const stop = () => children.forEach((c) => c.exitCode === null && c.kill('SIGTERM'));
 for (const c of children) {
-  c.on('exit', (status) => {
-    code ||= status ?? 1;
+  c.on('exit', (status, signal) => {
+    // Stopped by a signal (Ctrl+C) is a normal stop, not a failure.
+    code ||= status ?? (signal ? 0 : 1);
     stop();
   });
 }

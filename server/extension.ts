@@ -30,10 +30,13 @@ const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 
 interface StoredPairing extends BrowserPairing {
   hash: string;
+  /** The extension that asked to pair (chrome-extension://<id>); its token only works from there. */
+  origin?: string;
 }
 
 interface Pending {
   code: string;
+  origin: string;
   name: string;
   createdAt: number;
   status: 'pending' | 'approved';
@@ -102,15 +105,19 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
   };
 
   const readPairings = (): StoredPairing[] => {
+    // Read outside the try: a database that's briefly unreachable must fail the request,
+    // not look like "no browsers paired" (the extension would then forget its connection).
+    const raw = vault.store.getMeta(PAIRINGS_META);
     try {
-      const list = JSON.parse(vault.store.getMeta(PAIRINGS_META) ?? '[]');
+      const list = JSON.parse(raw ?? '[]');
       return Array.isArray(list) ? list : [];
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
       return [];
     }
   };
   const writePairings = (list: StoredPairing[]) => vault.store.setMeta(PAIRINGS_META, JSON.stringify(list));
-  const publicPairing = ({ hash: _hash, ...p }: StoredPairing): BrowserPairing => p;
+  const publicPairing = ({ hash: _hash, origin: _origin, ...p }: StoredPairing): BrowserPairing => p;
 
   // ---------------------------------------------------------------- extension side
 
@@ -135,6 +142,10 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
       const hash = hashToken(token);
       const list = readPairings();
       const found = list.find((p) => safeEqual(p.hash, hash));
+      // A token copied out of the extension doesn't work from anywhere else.
+      // Chrome leaves Origin off some extension requests (plain GETs), so only a different one is refused.
+      const origin = req.headers.origin;
+      if (found && found.origin && origin && origin !== found.origin) throw new HttpError(401, 'This browser isn’t connected to Keys', 'NOT_PAIRED');
       if (found) {
         // Remembered roughly, so a busy page doesn't write to the database on every request.
         if (!found.lastUsedAt || Date.now() - found.lastUsedAt > 60_000) {
@@ -160,10 +171,15 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
   ext.post('/pair', json, (req, res) => {
     sweep();
     if (!storage.available || !vault.isInitialized()) throw new HttpError(409, 'Set up Keys first, then connect this browser', 'NO_VAULT');
+    // Only an extension can ask (browsers always send its Origin), and each one gets a single open request,
+    // so no one can use up the slots to block real pairing.
+    const origin = req.headers.origin;
+    if (!origin || !EXTENSION_ORIGIN.test(origin)) throw new HttpError(403, 'Request blocked', 'FORBIDDEN');
+    for (const [id, p] of pending) if (p.origin === origin && p.status === 'pending') pending.delete(id);
     if (pending.size >= MAX_PENDING) throw new HttpError(429, 'Too many connection requests. Try again in a few minutes');
     const requestId = randomId();
     const code = newCode();
-    pending.set(requestId, { code, name: cleanName(req.body?.name), createdAt: Date.now(), status: 'pending' });
+    pending.set(requestId, { code, origin, name: cleanName(req.body?.name), createdAt: Date.now(), status: 'pending' });
     res.json({ requestId, code, expiresAt: Date.now() + PAIR_TTL_MS, appUrl });
   });
 
@@ -214,6 +230,76 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
     const entry = vault.getEntry(key, id);
     if (entry.type !== 'login' || !matchesSite(entry.url, url)) throw new HttpError(403, 'That login isn’t for this site', 'WRONG_SITE');
     res.json({ username: entry.username, password: entry.password });
+  });
+
+  /**
+   * Offering to save what was typed into a sign-in form. `check` only says what saving would do
+   * (nothing is written); `save` needs the person's click on the prompt, which the extension enforces.
+   */
+  /**
+   * The saved login a submitted one would update: same username, saved for exactly this site.
+   * (Filling also works on subdomains, but a subdomain must never overwrite its parent's password.)
+   */
+  const loginFor = (key: Buffer, url: string, username: string) => {
+    const page = siteOf(url, false);
+    return vault.listEntries(key).find((e) => {
+      const saved = siteOf(e.url, true);
+      return (
+        e.type === 'login' &&
+        saved !== null &&
+        page !== null &&
+        bareHost(saved) === bareHost(page) &&
+        saved.port === page.port &&
+        matchesSite(e.url, url) &&
+        e.username.trim().toLowerCase() === username.trim().toLowerCase()
+      );
+    });
+  };
+
+  const saveInput = (body: unknown) => {
+    const o = (body ?? {}) as Record<string, unknown>;
+    const url = requireString(o.url, 'Page address', 4096);
+    const site = siteOf(url, false);
+    if (!site) throw new HttpError(400, 'Only websites can be saved');
+    const password = requireString(o.password, 'Password', 4096);
+    const username = typeof o.username === 'string' ? o.username.slice(0, 512) : '';
+    return { url, site, username, password };
+  };
+
+  ext.post('/save/check', json, (req, res) => {
+    pairingOf(req);
+    const key = keyFor(false);
+    const { url, username, password } = saveInput(req.body);
+    const existing = loginFor(key, url, username);
+    res.json({ status: !existing ? 'new' : existing.password === password ? 'same' : 'update', title: existing?.title ?? null });
+  });
+
+  ext.post('/save', json, (req, res) => {
+    pairingOf(req);
+    const key = keyFor(true);
+    const { url, site, username, password } = saveInput(req.body);
+    const existing = loginFor(key, url, username);
+    if (existing) {
+      if (existing.password === password) return void res.json({ status: 'same', id: existing.id });
+      const { id: _i, createdAt: _c, updatedAt: _u, passwordUpdatedAt: _p, history: _h, breach: _b, ...input } = existing;
+      vault.updateEntry(key, existing.id, { ...input, password });
+      return void res.json({ status: 'updated', id: existing.id });
+    }
+    const host = site.hostname.replace(/^www\./, '');
+    const created = vault.createEntry(key, {
+      type: 'login',
+      title: host.slice(0, 200),
+      username: username.trim(),
+      password,
+      url: site.protocol === 'https:' ? host + (site.port ? `:${site.port}` : '') : site.origin,
+      notes: '',
+      codes: '',
+      categoryId: null,
+      favorite: false,
+      icon: '',
+      customFields: [],
+    });
+    res.json({ status: 'saved', id: created.id });
   });
 
   /** For the popup's copy buttons, which the person presses themselves. */
@@ -272,7 +358,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
     if (!match) throw new HttpError(404, 'That code doesn’t match. Check the code in the extension, or start again there', 'BAD_CODE');
     const [, p] = match;
     const token = randomToken();
-    const pairing: StoredPairing = { id: randomId(), name: p.name, createdAt: Date.now(), lastUsedAt: null, hash: hashToken(token) };
+    const pairing: StoredPairing = { id: randomId(), name: p.name, createdAt: Date.now(), lastUsedAt: null, hash: hashToken(token), origin: p.origin };
     writePairings([...readPairings(), pairing]);
     p.status = 'approved';
     p.token = token;

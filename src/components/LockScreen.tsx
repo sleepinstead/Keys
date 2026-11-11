@@ -28,12 +28,20 @@ export function captureBackdrop() {
   const live = [...document.querySelectorAll('.screen > *')].findLast((el) => !el.classList.contains('lock'));
   if (!live) return;
   const copy = live.cloneNode(true) as HTMLElement;
-  const walk = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
-  for (let t = walk.nextNode(); t; t = walk.nextNode()) t.nodeValue = t.nodeValue!.replace(/\S/g, 'x');
+  // The app's own labels ("All items", "Settings") stay readable under the dark overlay; anything that
+  // came from the vault (titles, usernames, counts, category names, the open item) is removed outright.
+  const DATA = '.workspace, .nav-categories, .nav-count, .lock-btn, .topbar';
+  for (const region of copy.querySelectorAll(DATA)) {
+    const walk = document.createTreeWalker(region, NodeFilter.SHOW_TEXT);
+    for (let t = walk.nextNode(); t; t = walk.nextNode()) t.nodeValue = '';
+  }
+  // Revealed secrets keep a telling shape (length, digits vs letters, spaces) even with every letter
+  // replaced, so they become a fixed mask; their per-character classes go with them.
+  for (const el of copy.querySelectorAll('.secret, .gen-value, .codes, .masked')) el.replaceChildren('••••••••');
   for (const el of copy.querySelectorAll('*')) {
-    for (const a of ['id', 'value', 'title', 'aria-label', 'alt', 'href', 'placeholder', 'name']) el.removeAttribute(a);
-    // The app's own images (its logo) stay; anything else, like a site's icon, goes.
-    if (el instanceof HTMLImageElement && !el.src.startsWith('data:') && new URL(el.src, location.href).origin !== location.origin) el.removeAttribute('src');
+    for (const a of ['id', 'value', 'title', 'aria-label', 'aria-valuetext', 'alt', 'href', 'placeholder', 'name', 'data-tone']) el.removeAttribute(a);
+    // Only the app's own images stay (its logo). Item icons are data: URLs and would show which sites you use.
+    if (el instanceof HTMLImageElement && !el.src.startsWith(`${location.origin}/logos/`)) el.remove(); // no broken-image boxes
   }
   copy.querySelectorAll('input, textarea').forEach((i) => ((i as HTMLInputElement).value = ''));
   copy.inert = true;
@@ -186,6 +194,8 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
   const succeed = (next: VaultStatus) => {
     setBusy(false);
     setVerified(true);
+    // The copy of the app stays on screen while this fades out, but nothing needs to keep it after that.
+    snapshot = null;
     window.setTimeout(() => onUnlocked(next), 750);
   };
 

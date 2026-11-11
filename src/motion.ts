@@ -56,11 +56,3 @@ export function viewTransition(apply: () => void) {
   });
 }
 
-/** Springs the star when it turns on. Done on click, as a CSS animation would replay on every mount. */
-export function popStar(button: HTMLElement) {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  button.querySelector('svg')?.animate(
-    [{ transform: 'scale(0.6) rotate(-20deg)' }, { transform: 'scale(1.2) rotate(6deg)', offset: 0.6 }, { transform: 'none' }],
-    { duration: 400, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
-  );
-}

@@ -29,6 +29,10 @@
   let follow = null; // keeps the menu beside its field while open
   let filling = false; // our own focus moves while filling mustn't reopen the menu
   let cache = null; // { at, result }: only an unlocked answer is reused, briefly
+  let shownAt = 0; // clicks right after a menu or prompt appears are ignored (a page could time a decoy over it)
+  const typed = new WeakMap(); // field → the value the person last typed into it themselves
+  const keysFilled = new WeakSet(); // fields Keys filled: nothing new to save there
+  const fresh = () => performance.now() - shownAt < 450;
 
   // ------------------------------------------------------------------ fields
 
@@ -101,6 +105,11 @@
 
   /** Fills the form around `anchor` (or the page's login form, for the popup's Fill button). */
   function fill(anchor, { username, password }) {
+    // The site may have re-rendered its form while Keys was answering: use the field in focus now.
+    if (anchor && !anchor.isConnected) {
+      const now = deepActive();
+      anchor = now instanceof HTMLInputElement && loginKind(now) ? now : null;
+    }
     let user = null;
     let pass = null;
     if (anchor && isCurrentPassword(anchor)) {
@@ -117,6 +126,7 @@
     try {
       if (user && username) setValue(user, username);
       if (pass && password) setValue(pass, password);
+      if (pass) keysFilled.add(pass);
       (pass ?? user)?.focus({ preventScroll: true });
     } finally {
       // Focus events from the moves above arrive synchronously; let them pass before listening again.
@@ -160,7 +170,7 @@
     button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: 100%;
       min-height: 46px; padding: 6px 8px; border-radius: 10px; cursor: pointer; }
     button:hover, button:focus-visible { background: #f4f4f5; }
-    button:focus-visible { box-shadow: 0 0 0 3px rgba(10,10,10,.1); }
+    
     .tile { flex: none; display: grid; place-items: center; width: 32px; height: 32px; overflow: hidden;
       border: 1px solid #e7e7e9; border-radius: 9px; background: #fafafa; color: #3f3f46;
       font-size: 13px; font-weight: 600; }
@@ -177,7 +187,7 @@
       .menu { color: #fafafa; background: #0a0a0a; border-color: #232323;
         box-shadow: 0 24px 56px -12px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.04); }
       button:hover, button:focus-visible { background: #1c1c1c; }
-      button:focus-visible { box-shadow: 0 0 0 3px rgba(255,255,255,.14); }
+      
       .tile { background: #111; border-color: #232323; color: #d4d4d8; }
       .head, .sub, .foot button { color: #a1a1aa; }
       .foot { border-color: #232323; }
@@ -193,6 +203,7 @@
 
   /** Keeps the menu beside the field; hides it if the field is gone or scrolled out of view. */
   function place() {
+    if (!alive()) return close(); // an older copy after an extension update: tidy up
     if (!menuEl || !field) return;
     if (!field.isConnected || !visible(field)) return close();
     const r = field.getBoundingClientRect();
@@ -248,7 +259,7 @@
   /** Only the person's own click or key counts. Keys the menu handles don't reach the page. */
   function wire(b, run) {
     b.addEventListener('click', (e) => {
-      if (e.isTrusted) run();
+      if (e.isTrusted && !fresh()) run();
     });
     b.addEventListener('keydown', (e) => {
       const all = [...root.querySelectorAll('button')];
@@ -318,6 +329,7 @@
         /* not supported here: z-index alone */
       }
     }
+    shownAt = performance.now();
     place();
     follow = setInterval(place, 250); // pages re-render, animate and move fields around
   }
@@ -380,6 +392,284 @@
     void offer(el, kind);
   }
 
+  // ------------------------------------------------------------------ offer to save
+
+  // A sent sign-in or sign-up form is offered to Keys. Only the person's click on "Save" stores it;
+  // the page itself can't press it (closed shadow root, trusted clicks only).
+  let lastCaptured = '';
+  let saveHost = null;
+
+  /**
+   * The password being set: on a change-password or sign-up form that's the new one (marked
+   * new-password, or the value typed twice for confirmation), not the current one above it.
+   */
+  function submittedPassword(scope) {
+    const filled = inputsIn(scope).filter((i) => typeOf(i) === 'password' && i.value);
+    if (!filled.length) return null;
+    const marked = filled.find((i) => autoOf(i).includes('new-password'));
+    if (marked) return marked;
+    const twice = filled.find((i, n) => filled.some((o, m) => m !== n && o.value === i.value));
+    return twice ?? filled[filled.length - 1];
+  }
+
+  let lastUsername = ''; // from an earlier step of a multi-step sign-in, typed on this page
+  let usernameTimer;
+  // Kept by the extension for this tab too, since the password step is often a new page.
+  const rememberUsername = () => {
+    clearTimeout(usernameTimer);
+    usernameTimer = setTimeout(() => void ask({ type: 'keys:page-username', username: lastUsername }), 600);
+  };
+
+  function capture(from) {
+    const scope = from?.form ?? (from instanceof Element ? scopeOf(from) : document);
+    const pass = submittedPassword(scope) ?? submittedPassword(document);
+    // Only what the person typed: a page setting values from script, or a login Keys filled, isn't offered.
+    if (!pass || typed.get(pass) !== pass.value || keysFilled.has(pass)) return;
+    const user = usernameBefore(pass);
+    const username = (user && isUsernameField(user, false) ? user.value.trim() : '') || lastUsername;
+    const fingerprint = `${username}\n${pass.value}`;
+    if (fingerprint === lastCaptured) return;
+    lastCaptured = fingerprint;
+    const startUrl = location.href;
+    void ask({ type: 'keys:page-captured', username, password: pass.value }).then((res) => {
+      if (!res?.ok || !res.result.offer) return;
+      // Ask only once the sign-in has gone through: the page moved on, or the form went away.
+      // If the form is still there a few seconds later the password was probably wrong, so stay quiet
+      // (the next page in this tab still gets the question if it does go through).
+      const started = Date.now();
+      const wait = () => {
+        if (!alive() || saveHost) return;
+        if (location.href !== startUrl || !pass.isConnected || !visible(pass)) return showSave(res.result.offer);
+        if (Date.now() - started < 8000) setTimeout(wait, 400);
+      };
+      setTimeout(wait, 400);
+    });
+  }
+
+  const EASE = 'cubic-bezier(.2,0,0,1)';
+  const SAVE_STYLE = `
+    @font-face { font-family: 'Keys Inter'; font-weight: 100 900; font-display: swap;
+      src: url('${asset('fonts/inter.woff2')}') format('woff2-variations'); }
+    :host { all: initial !important; position: fixed !important; inset: 16px 16px auto auto !important;
+      z-index: 2147483647 !important; margin: 0 !important; padding: 0 !important; border: 0 !important;
+      background: none !important; width: auto !important; height: auto !important; overflow: visible !important; }
+    .card {
+      --bg: #fff; --fg: #0a0a0a; --muted: #71717a; --line: #e7e7e9; --hover: #f4f4f5;
+      --btn-bg: #0a0a0a; --btn-fg: #fff; --btn-hover: #27272a; --ring: #52525b; --good: #16a34a; --bad: #dc2626;
+      box-sizing: border-box; width: 344px; max-width: calc(100vw - 32px); padding: 16px; overflow: hidden;
+      font: 13.5px/1.45 'Keys Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased; color: var(--fg); background: var(--bg); text-align: left;
+      border: 1px solid var(--line); border-radius: 16px;
+      box-shadow: 0 24px 48px -12px rgba(10,10,10,.2), 0 8px 16px -8px rgba(10,10,10,.08);
+      transform-origin: top right;
+      transition: opacity .2s ${EASE}, transform .2s ${EASE}, height .24s ${EASE}; }
+    .card[data-state='entering'], .card[data-state='leaving'] { opacity: 0; transform: translateY(-8px) scale(.97); }
+    .card[data-state='leaving'] { transition-duration: .16s; }
+    .view { transition: opacity .16s ${EASE}, transform .16s ${EASE}; }
+    .view[data-hidden] { opacity: 0; transform: translateY(4px); }
+    .head { display: flex; align-items: flex-start; gap: 11px; }
+    .head img { width: 30px; height: 30px; flex: none; }
+    .text { min-width: 0; flex: 1; }
+    .title { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; }
+    .sub { margin-top: 1px; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .x { all: unset; flex: none; display: grid; place-items: center; width: 26px; height: 26px; margin: -3px -4px 0 0;
+      border-radius: 8px; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+    .x:hover, .x:focus-visible { background: var(--hover); color: var(--fg); }
+    .x svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+    .row { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+    .card .btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      height: 34px; padding: 0 14px; border-radius: 10px; font-size: 13px; font-weight: 550; white-space: nowrap; cursor: pointer;
+      transition: background .15s, color .15s, border-color .15s, transform .1s, opacity .15s; }
+    .card .btn:active { transform: scale(.97); }
+    
+    .card .btn[disabled] { cursor: default; opacity: .55; transform: none; }
+    .card .btn.ghost { padding: 0 10px; color: var(--muted); }
+    .card .btn.ghost:hover:not([disabled]) { background: var(--hover); color: var(--fg); }
+    .card .btn.outline { margin-left: auto; border: 1px solid var(--line); color: var(--fg); }
+    .card .btn.outline:hover:not([disabled]) { background: var(--hover); }
+    .card .btn.primary { background: var(--btn-bg); color: var(--btn-fg); min-width: 72px; }
+    .card .btn.primary:hover:not([disabled]) { background: var(--btn-hover); }
+    .card .btn.primary[aria-busy='true'] { opacity: 1; }
+    .spin { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+      animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { margin-top: 10px; color: var(--bad); font-size: 12.5px; }
+    .error:empty { display: none; }
+    .done { display: flex; align-items: center; gap: 10px; font-weight: 550; }
+    .done .tick { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%;
+      background: color-mix(in srgb, var(--good) 16%, transparent); }
+    .done svg { width: 16px; height: 16px; fill: none; stroke: var(--good); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+      stroke-dasharray: 24; stroke-dashoffset: 24; animation: draw .35s .08s ${EASE} forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    .done small { display: block; color: var(--muted); font-size: 12.5px; font-weight: 400; }
+    @media (prefers-color-scheme: dark) {
+      .card { --bg: #0a0a0a; --fg: #fafafa; --muted: #a1a1aa; --line: #262626; --hover: #1c1c1c;
+        --btn-bg: #fafafa; --btn-fg: #0a0a0a; --btn-hover: #e4e4e7; --ring: #a1a1aa; --good: #22c55e; --bad: #f87171;
+        box-shadow: 0 24px 56px -12px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.04); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .card, .view, .card .btn { transition: none; }
+      .card[data-state] { opacity: 1; transform: none; }
+      .done svg { animation: none; stroke-dashoffset: 0; }
+    }`;
+
+  let saveTimer;
+
+  /** Fades the prompt out, then removes it. */
+  function closeSave(now = false) {
+    clearTimeout(saveTimer);
+    const leaving = saveHost;
+    saveHost = null;
+    if (!leaving) return;
+    const card = leaving.__card;
+    if (now || !card || matchMedia('(prefers-reduced-motion: reduce)').matches) return leaving.remove();
+    card.dataset.state = 'leaving';
+    setTimeout(() => leaving.remove(), 170);
+  }
+
+  /** Swaps the card's contents with a short crossfade, animating its height to fit. */
+  function swapView(card, next) {
+    const from = card.getBoundingClientRect().height;
+    const old = card.querySelector('.view');
+    if (old) old.dataset.hidden = '';
+    setTimeout(() => {
+      next.dataset.hidden = '';
+      card.replaceChildren(next);
+      card.style.height = `${from}px`;
+      const to = next.getBoundingClientRect().height + 32 + 2; // padding and border
+      requestAnimationFrame(() => {
+        card.style.height = `${to}px`;
+        delete next.dataset.hidden;
+      });
+    }, 140);
+  }
+
+  function showSave(offer) {
+    closeSave(true);
+    shownAt = performance.now();
+    const hostEl = document.createElement('keys-save');
+    saveHost = hostEl;
+    const shadow = hostEl.attachShadow({ mode: 'closed' });
+    const style = document.createElement('style');
+    style.textContent = SAVE_STYLE;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.state = 'entering';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', 'Save to Keys');
+    card.setAttribute('aria-live', 'polite');
+    hostEl.__card = card;
+
+    const view = document.createElement('div');
+    view.className = 'view';
+    const head = document.createElement('div');
+    head.className = 'head';
+    const logo = document.createElement('img');
+    logo.src = asset('icons/mark.png');
+    logo.alt = '';
+    const text = document.createElement('div');
+    text.className = 'text';
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = offer.status === 'update' ? 'Update the password in Keys?' : 'Save this login to Keys?';
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = offer.username ? `${offer.username} · ${offer.host}` : offer.host;
+    text.append(title, sub);
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.setAttribute('aria-label', 'Close');
+    x.append(svg(['M18 6 6 18', 'm6 6 12 12']));
+    head.append(logo, text, x);
+
+    const row = document.createElement('div');
+    row.className = 'row';
+    const btn = (label, kind) => {
+      const b = document.createElement('button');
+      b.className = `btn ${kind}`;
+      b.textContent = label;
+      row.append(b);
+      return b;
+    };
+    const never = btn('Never for this site', 'ghost');
+    const later = btn('Not now', 'outline');
+    const saveLabel = offer.status === 'update' ? 'Update' : 'Save';
+    const save = btn(saveLabel, 'primary');
+    const error = document.createElement('div');
+    error.className = 'error';
+    error.setAttribute('role', 'alert');
+    view.append(head, row, error);
+
+    const buttons = [x, never, later, save];
+    const busy = (on) => {
+      for (const b of buttons) b.disabled = on;
+      save.setAttribute('aria-busy', String(on));
+      if (on) {
+        const sp = document.createElement('span');
+        sp.className = 'spin';
+        save.replaceChildren(sp, 'Saving');
+      } else save.replaceChildren(saveLabel);
+    };
+    const trusted = (b, run) => b.addEventListener('click', (e) => e.isTrusted && !b.disabled && !fresh() && run());
+    const dismiss = (neverAgain) => {
+      closeSave();
+      void ask({ type: 'keys:page-dismiss', never: neverAgain });
+    };
+    trusted(x, () => dismiss(false));
+    trusted(later, () => dismiss(false));
+    trusted(never, () => dismiss(true));
+    trusted(save, async () => {
+      error.textContent = '';
+      busy(true);
+      const res = await ask({ type: 'keys:page-save' });
+      if (saveHost !== hostEl) return;
+      if (!res?.ok) {
+        busy(false);
+        error.textContent =
+          res?.code === 'LOCKED' ? 'Keys is locked. Unlock it, then press Save again.' : res?.code === 'OFFLINE' ? 'Keys isn’t running. Start it, then press Save again.' : (res?.error ?? 'Couldn’t save. Try again.');
+        return;
+      }
+      cache = null; // the menu should list the new login next time
+      clearTimeout(saveTimer);
+      const done = document.createElement('div');
+      done.className = 'view done';
+      const tick = document.createElement('span');
+      tick.className = 'tick';
+      tick.append(svg(['M20 6 9 17l-5-5']));
+      const words = document.createElement('span');
+      words.append(res.result.status === 'updated' ? 'Password updated in Keys' : 'Saved to Keys');
+      const small = document.createElement('small');
+      small.textContent = offer.username ? `${offer.username} · ${offer.host}` : offer.host;
+      words.append(small);
+      done.append(tick, words);
+      swapView(card, done);
+      saveTimer = setTimeout(() => saveHost === hostEl && closeSave(), 2200);
+    });
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        dismiss(false);
+      }
+    });
+
+    card.append(view);
+    shadow.append(style, card);
+    // Inside a modal sign-in dialog the prompt has to live in it too, and the top layer keeps it above the page.
+    (document.querySelector('dialog[open]') ?? document.documentElement).append(hostEl);
+    if (hostEl.showPopover) {
+      hostEl.setAttribute('popover', 'manual');
+      try {
+        hostEl.showPopover();
+      } catch {
+        /* z-index alone */
+      }
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => delete card.dataset.state));
+    // The question lapses with the login Keys is holding for it.
+    const left = (offer.expiresAt ?? Date.now() + 120_000) - Date.now();
+    saveTimer = setTimeout(() => saveHost === hostEl && closeSave(), Math.max(0, left));
+  }
+
   // ------------------------------------------------------------------ events
 
   document.addEventListener(
@@ -435,6 +725,48 @@
   window.addEventListener('scroll', () => alive() && host && place(), true);
   window.addEventListener('resize', () => alive() && host && place());
 
+  // What the person typed themselves; a username typed on an earlier step of a sign-in is remembered.
+  document.addEventListener(
+    'input',
+    (e) => {
+      const el = e.composedPath()[0];
+      if (!e.isTrusted || !(el instanceof HTMLInputElement)) return;
+      typed.set(el, el.value);
+      keysFilled.delete(el);
+      if (isUsernameField(el, false) && el.value.trim()) {
+        lastUsername = el.value.trim();
+        rememberUsername();
+      }
+    },
+    true,
+  );
+
+  // Sending a login form: a real submit, Enter in a field, or a click on its button
+  // (many sites sign in with script instead of submitting the form).
+  // Only the person's own submit counts: a page dispatching one from script can't make Keys check values.
+  document.addEventListener('submit', (e) => e.isTrusted && alive() && capture(e.target), true);
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      const el = e.composedPath()[0];
+      if (e.isTrusted && alive() && e.key === 'Enter' && el instanceof HTMLInputElement && loginKind(el) !== null) capture(el);
+    },
+    true,
+  );
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (!alive() || !e.isTrusted) return;
+      const b = e.composedPath()[0]?.closest?.('button, input[type="submit"], [role="button"]');
+      if (!b || b.closest('keys-autofill, keys-save')) return;
+      const label = `${b.textContent} ${b.getAttribute('value') ?? ''} ${b.getAttribute('aria-label') ?? ''}`.toLowerCase();
+      if (b.type === 'submit' || /sign ?in|log ?in|continue|next|sign ?up|register|create|submit/.test(label)) capture(b);
+    },
+    true,
+  );
+  // After a sign-in the page usually changes: the new page shows the question still waiting for this tab.
+  void ask({ type: 'keys:page-pending' }).then((res) => res?.ok && res.result.offer && showSave(res.result.offer));
+
   // A field that was focused before this script loaded (autofocus) still gets the menu.
   const initial = deepActive();
   if (initial instanceof HTMLInputElement) maybeOffer(initial);
@@ -442,6 +774,8 @@
   // The popup's "Fill" button.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!alive() || msg?.type !== 'keys:fill') return false;
+    // The tab may have moved to another site while Keys was answering: never fill there.
+    if (msg.origin !== location.origin) return sendResponse({ filled: false }), false;
     const active = deepActive();
     sendResponse(fill(active instanceof HTMLInputElement && loginKind(active) ? active : null, msg));
     return false;

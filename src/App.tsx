@@ -62,6 +62,10 @@ export function App() {
       unlocked.current = false;
       clearClipboardNow();
       captureBackdrop();
+      // The vault stays mounted for a moment under the lock screen; its dialogs (an open editor,
+      // say) are portaled above everything, so hide them at once.
+      document.body.dataset.locking = '';
+      window.setTimeout(() => delete document.body.dataset.locking, 600);
       // Show the lock screen right away. Remounting the vault while the status
       // still says "unlocked" would fire its startup requests against a locked
       // session, and each failure used to surface as a toast.

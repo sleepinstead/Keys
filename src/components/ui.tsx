@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { ButtonHTMLAttributes, CSSProperties, KeyboardEvent, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Check, Copy, Folder, Monitor, Moon, Sun, X } from 'lucide-react';
@@ -246,12 +246,16 @@ export function AppMark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 /** Monospace secret; digits and symbols are slightly muted so look-alikes are easier to tell apart. */
 export function SecretText({ value, className = '' }: { value: string; className?: string }) {
   return (
-    <span className={`secret ${className}`.trim()} aria-label={value}>
-      {[...value].map((ch, i) => (
-        <span key={i} aria-hidden="true" className={/[0-9]/.test(ch) ? 'ch-digit' : /[\p{L}]/u.test(ch) ? undefined : 'ch-symbol'}>
-          {ch}
-        </span>
-      ))}
+    <span className={`secret ${className}`.trim()}>
+      {/* Coloured characters for the eye; the plain value for screen readers (aria-label on a span isn't read). */}
+      <span aria-hidden="true">
+        {[...value].map((ch, i) => (
+          <span key={i} className={/[0-9]/.test(ch) ? 'ch-digit' : /[\p{L}]/u.test(ch) ? undefined : 'ch-symbol'}>
+            {ch}
+          </span>
+        ))}
+      </span>
+      <span className="visually-hidden">{value}</span>
     </span>
   );
 }
@@ -410,6 +414,8 @@ export interface MenuItem {
   checked?: boolean;
   shortcut?: string;
   separatorBefore?: boolean;
+  /** Shown but not choosable, e.g. removing the last copy of an account. */
+  disabled?: boolean;
 }
 
 /** Arrow keys move between a menu's items, wrapping at the ends. */
@@ -432,6 +438,7 @@ function MenuButtons({ items, close }: { items: MenuItem[]; close: () => void })
             role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
             aria-checked={item.checked}
             className={item.danger ? 'is-danger' : undefined}
+            disabled={item.disabled}
             onClick={() => {
               close();
               item.onSelect();
@@ -452,6 +459,22 @@ function MenuButtons({ items, close }: { items: MenuItem[]; close: () => void })
  * Right-click menu at the pointer (or under the row, from the keyboard's menu key).
  * Kept inside the window, closed by any click, scroll or Escape, and focus goes back to `returnTo`.
  */
+/**
+ * Right-click (or the keyboard's menu key) on a row opens a menu for that row.
+ * Returns the open menu, a handler for `onContextMenu`, and a closer.
+ */
+export function useContextMenu<T>() {
+  const [menu, setMenu] = useState<{ x: number; y: number; target: T; row: HTMLElement } | null>(null);
+  const open = useCallback((e: ReactMouseEvent<HTMLElement>, target: T) => {
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    const keyboard = e.clientX === 0 && e.clientY === 0; // the menu key reports no pointer position
+    setMenu({ x: keyboard ? r.left + 16 : e.clientX, y: keyboard ? r.bottom : e.clientY, target, row: e.currentTarget });
+  }, []);
+  const close = useCallback(() => setMenu(null), []);
+  return { menu, open, close };
+}
+
 export function ContextMenu({ at, items, label, onClose, returnTo }: { at: { x: number; y: number } | null; items: MenuItem[]; label: string; onClose: () => void; returnTo?: HTMLElement | null }) {
   const list = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -477,7 +500,7 @@ export function ContextMenu({ at, items, label, onClose, returnTo }: { at: { x: 
     window.addEventListener('scroll', dismiss, true);
     window.addEventListener('resize', dismiss);
     window.addEventListener('blur', dismiss);
-    requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]')?.focus());
+    requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus());
     return () => {
       window.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('scroll', dismiss, true);
@@ -537,11 +560,16 @@ export function Menu({
   const list = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => setOpen(false), []);
+  // After picking, focus goes back to the button that opened the menu (not lost to the page).
+  const closeToTrigger = useCallback(() => {
+    setOpen(false);
+    root.current?.querySelector<HTMLButtonElement>('button')?.focus();
+  }, []);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => !root.current?.contains(e.target as Node) && close();
     window.addEventListener('pointerdown', onDown);
-    requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]')?.focus());
+    requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus());
     return () => window.removeEventListener('pointerdown', onDown);
   }, [open, close]);
 
@@ -562,7 +590,7 @@ export function Menu({
         {open && (
           <motion.div ref={list} role="menu" aria-label={label} className={`menu menu-${align}`} {...pop}>
             {heading && <div className="menu-heading">{heading}</div>}
-            <MenuButtons items={items} close={close} />
+            <MenuButtons items={items} close={closeToTrigger} />
             {footer?.(close)}
           </motion.div>
         )}
