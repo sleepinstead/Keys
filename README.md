@@ -4,7 +4,7 @@ Keys is a password manager that runs on your own computer. Your passwords are en
 
 I built it for people who want a private, simple place for their passwords without handing them to a third party.
 
-![Keys main screen](docs/screenshots/main.png)
+![Keys main screen](screenshots/main.png)
 
 ## What it does
 
@@ -51,7 +51,7 @@ To back up, make an encrypted export, or copy the file while Keys is stopped.
 
 Keys has an extension for Chrome, Edge, Brave and other Chromium browsers. It fills your logins on websites and asks before saving a new or changed password. It keeps no copy of your passwords: it asks Keys, and only while Keys is unlocked.
 
-![Autofill menu on a login page](docs/screenshots/extension.png)
+![Autofill menu on a login page](screenshots/extension.png)
 
 1. Download the latest `Keys-extension` zip from [Releases](https://github.com/sleepinstead/Keys/releases) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode**.
