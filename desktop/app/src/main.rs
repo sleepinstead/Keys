@@ -20,12 +20,15 @@ fn main() {
     };
     listener.set_nonblocking(true).expect("non-blocking socket");
 
+    let storage = Storage::open(Some(config_dir().join("location.json")), default_db_file());
+    let keys = keys_core::api::App::new(storage, port);
+    let on_exit = keys.clone();
+
     tauri::Builder::default()
         .setup(move |app| {
-            let storage = Storage::open(Some(config_dir().join("location.json")), default_db_file());
             tauri::async_runtime::spawn(async move {
                 let listener = tokio::net::TcpListener::from_std(listener).expect("listener");
-                if let Err(e) = keys_core::api::serve_on(storage, port, listener).await {
+                if let Err(e) = keys_core::api::serve_app(keys, listener).await {
                     eprintln!("Keys stopped: {e}");
                 }
             });
@@ -38,6 +41,12 @@ fn main() {
                 .build()?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Keys couldn’t start");
+        .build(tauri::generate_context!())
+        .expect("Keys couldn’t start")
+        .run(move |_, event| {
+            // On quit: lock, and remove this computer's "open" marker beside a shared database.
+            if let tauri::RunEvent::Exit = event {
+                on_exit.shutdown();
+            }
+        });
 }

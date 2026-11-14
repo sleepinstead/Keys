@@ -43,6 +43,16 @@ impl Session {
         Some(key.clone())
     }
 
+    /// The key while unlocked, for the browser extension (which has no session token of its own).
+    pub fn peek(&mut self, touch: bool, now: i64) -> Option<Key> {
+        self.expire_if_idle(now);
+        let key = self.key.clone()?;
+        if touch {
+            self.last_activity = now;
+        }
+        Some(key)
+    }
+
     pub fn expires_at(&self) -> Option<i64> {
         self.key.as_ref().map(|_| self.last_activity + self.idle_ms)
     }

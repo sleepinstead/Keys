@@ -267,18 +267,32 @@ fn check_category(store: &mut Store, input: &mut Map<String, Value>) -> Result<(
     Ok(())
 }
 
-pub fn create_entry(store: &mut Store, key: &K, mut input: Map<String, Value>) -> Result<Map<String, Value>> {
+pub fn create_entry(store: &mut Store, key: &K, input: Map<String, Value>) -> Result<Map<String, Value>> {
+    create_entry_with(store, key, input, None, None, vec![])
+}
+
+/// Imports keep an item's original dates and password history.
+pub fn create_entry_with(
+    store: &mut Store,
+    key: &K,
+    mut input: Map<String, Value>,
+    created_at: Option<i64>,
+    password_updated_at: Option<i64>,
+    mut history: Vec<Value>,
+) -> Result<Map<String, Value>> {
     let id = crypto::random_id();
     let now = now_ms();
     check_category(store, &mut input)?;
-    input.insert("passwordUpdatedAt".into(), now.into());
-    input.insert("history".into(), json!([]));
+    history.truncate(HISTORY_LIMIT);
+    input.insert("passwordUpdatedAt".into(), password_updated_at.unwrap_or(now).into());
+    input.insert("history".into(), Value::Array(history));
     input.insert("breach".into(), Value::Null);
+    let created = created_at.unwrap_or(now);
     let data = Value::Object(input);
-    store.insert(Table::Entries, &Row { id: id.clone(), blob: crypto::encrypt_json(key, &data, &entry_aad(&id)), created_at: now, updated_at: now, deleted_at: None })?;
+    store.insert(Table::Entries, &Row { id: id.clone(), blob: crypto::encrypt_json(key, &data, &entry_aad(&id)), created_at: created, updated_at: now, deleted_at: None })?;
     let mut out = data.as_object().unwrap().clone();
     out.insert("id".into(), id.into());
-    out.insert("createdAt".into(), now.into());
+    out.insert("createdAt".into(), created.into());
     out.insert("updatedAt".into(), now.into());
     Ok(out)
 }
@@ -375,6 +389,14 @@ pub fn list_categories(store: &mut Store, key: &K) -> Result<Vec<Value>> {
 
 fn same_name(c: &Value, name: &str) -> bool {
     c["name"].as_str().is_some_and(|n| n.to_lowercase() == name.to_lowercase())
+}
+
+/// The category with this name (any case), created if missing. Returns (category, created).
+pub fn find_or_create_category(store: &mut Store, key: &K, name: &str) -> Result<(Value, bool)> {
+    if let Some(c) = list_categories(store, key)?.into_iter().find(|c| same_name(c, name)) {
+        return Ok((c, false));
+    }
+    Ok((insert_category(store, key, name, now_ms())?, true))
 }
 
 pub fn create_category(store: &mut Store, key: &K, name: &str) -> Result<Value> {

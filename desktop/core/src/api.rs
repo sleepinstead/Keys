@@ -13,6 +13,9 @@ use rust_embed::RustEmbed;
 use serde_json::{Map, Value, json};
 
 use crate::crypto::{self, KdfParams, Key};
+use crate::extension::{self as ext, Pending};
+use crate::sharing::{self, Presence};
+use crate::{audit, favicon, importexport};
 use crate::error::{HttpError, Result};
 use crate::session::{QuickUnlock, Session};
 use crate::storage::{self, Storage};
@@ -33,20 +36,37 @@ pub struct Inner {
     vault_id: Option<String>,
     /// One password check at a time, or parallel guesses would all pass the lockout check.
     unlocking: bool,
+    /// Browsers waiting for their pairing code to be typed into the app.
+    pending: Vec<Pending>,
+    /// "Open on this computer" marker beside a shared database (None in tests).
+    presence: Option<Presence>,
+    breach_running: bool,
 }
 
 pub struct App {
     inner: Mutex<Inner>,
     origins: Vec<String>,
+    /// Where the app is, for the extension's "Open Keys" button.
+    app_url: String,
 }
 
 pub type Shared = Arc<App>;
 
 impl App {
     pub fn new(storage: Storage, port: u16) -> Shared {
-        let mut inner = Inner { storage, session: Session::new(), quick: QuickUnlock::default(), vault_id: None, unlocking: false };
+        let mut inner = Inner {
+            storage,
+            session: Session::new(),
+            quick: QuickUnlock::default(),
+            vault_id: None,
+            unlocking: false,
+            pending: Vec::new(),
+            presence: None,
+            breach_running: false,
+        };
         inner.vault_id = inner.current_vault_id();
-        Arc::new(App { inner: Mutex::new(inner), origins: vec![format!("http://localhost:{port}"), format!("http://127.0.0.1:{port}")] })
+        let app_url = format!("http://localhost:{port}");
+        Arc::new(App { inner: Mutex::new(inner), origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")], app_url })
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -57,11 +77,47 @@ impl App {
     pub fn tick(&self) {
         self.lock().session.expire_if_idle(now_ms());
     }
+
+    /// Announces (or refreshes) this computer beside a shared database. Off until called.
+    pub fn beat(&self) {
+        let mut g = self.lock();
+        let db = g.shared_file();
+        g.presence.get_or_insert_with(Presence::new).beat(db.as_deref());
+    }
+
+    /// On quit: lock, and take this computer's marker away.
+    pub fn shutdown(&self) {
+        let mut g = self.lock();
+        g.lock_all();
+        if let Some(p) = g.presence.as_mut() {
+            p.clear();
+        }
+    }
 }
 
 impl Inner {
     fn store(&mut self) -> Result<&mut Store> {
         self.storage.store()
+    }
+
+    /// The database file if it's one the person chose (where other computers may share it).
+    fn shared_file(&self) -> Option<std::path::PathBuf> {
+        (self.storage.available() && !self.storage.is_default()).then(|| self.storage.file().to_path_buf())
+    }
+
+    fn read_pairings(&mut self) -> Result<Vec<Value>> {
+        // Read outside the parse: an unreachable database must fail, not look like "no browsers".
+        let raw = self.store()?.get_meta(ext::PAIRINGS_META)?;
+        Ok(raw.and_then(|r| serde_json::from_str::<Value>(&r).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default())
+    }
+
+    fn write_pairings(&mut self, list: &[Value]) -> Result<()> {
+        self.store()?.set_meta(ext::PAIRINGS_META, &Value::Array(list.to_vec()).to_string())
+    }
+
+    fn sweep(&mut self) {
+        let now = now_ms();
+        self.pending.retain(|p| now - p.created_at <= ext::PAIR_TTL_MS);
     }
 
     fn current_vault_id(&mut self) -> Option<String> {
@@ -254,7 +310,36 @@ async fn rearm_pin(app: &App, dek: &Key) -> Result<()> {
     Ok(())
 }
 
-const NOT_YET: &str = "That isn’t in the Mac app yet. Use Keys in the browser (npm start) for it for now.";
+/// The audit, rating new or changed passwords off the async threads and remembering each rating
+/// inside its (encrypted) item so the next audit doesn't redo it.
+async fn audit_report(app: &App, token: Option<&str>) -> Result<Value> {
+    let entries = {
+        let mut g = app.lock();
+        let key = g.key_for(token, true)?;
+        vault::list_entries(g.store()?, &key)?
+    };
+    let (entries, fresh) = tokio::task::spawn_blocking(move || {
+        let mut entries = entries;
+        let fresh = audit::rate_logins(&mut entries);
+        (entries, fresh)
+    })
+    .await
+    .map_err(|_| HttpError::new(500, "Internal error"))?;
+    let mut g = app.lock();
+    let key = g.key_for(token, false)?; // the session may have locked while rating
+    if !fresh.is_empty() {
+        g.store()?.transaction(|s| {
+            for (id, rating) in &fresh {
+                // Skip anything edited while it was rated: the rating would be for the old password.
+                let pw = entries.iter().find(|e| e["id"] == id.as_str()).and_then(|e| e["password"].as_str()).unwrap_or("").to_string();
+                vault::patch_entry(s, &key, id, json!({ "strength": rating }), move |d| d.get("password").and_then(Value::as_str) == Some(pw.as_str()))?;
+            }
+            Ok(())
+        })?;
+    }
+    let settings = g.settings()?;
+    Ok(audit::build_report(&entries, &settings, now_ms()))
+}
 
 /// Every /api route. Returns (status, JSON body).
 async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body: &Value) -> Result<(u16, Value)> {
@@ -410,7 +495,15 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         ("GET", ["sync"]) => with!(|g| {
             g.key_for(token, false)?; // looking doesn't count as activity
             g.storage.check_for_changes();
-            Ok(json!({ "revision": g.storage.revision(), "devices": [], "conflicts": [] }))
+            let db = g.shared_file();
+            let devices = g.presence.as_ref().map(|p| p.others(db.as_deref())).unwrap_or_default();
+            let conflicts = sharing::find_conflicts(g.store()?);
+            Ok(json!({ "revision": g.storage.revision(), "devices": devices, "conflicts": conflicts }))
+        }),
+        ("POST", ["sync", "merge"]) => with!(|g| {
+            g.key_for(token, true)?;
+            let file = require_string(body.get("path"), "Copy", 4096)?;
+            sharing::merge_conflict(g.store()?, &file).map_err(|e| HttpError::new(409, e.message))
         }),
 
         // ------------------------------------------------------------ tools
@@ -595,15 +688,139 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             ok(json!({ "ok": true, "credential": credential }))
         }
 
-        // ------------------------------------------------------------ not ported yet
-        ("GET", ["audit"]) | ("POST", ["audit", "breaches"]) | ("POST", ["export"]) | ("POST", ["import"]) | ("POST", ["tools", "site-icon"]) | ("POST", ["sync", "merge"]) => {
-            Err(HttpError::coded(501, NOT_YET, "NOT_YET"))
+        // ------------------------------------------------------------ website icons
+        // Only for logins without an icon, or "Use website icon". It contacts that website directly.
+        ("POST", ["tools", "site-icon"]) => {
+            app.lock().key_for(token, true)?;
+            let url = opt_string(body.get("url"), 2048);
+            ok(json!({ "icon": favicon::fetch_site_icon(&url).await? }))
         }
+
+        // ------------------------------------------------------------ audit
+        ("GET", ["audit"]) => ok(audit_report(app, token).await?),
+        ("POST", ["audit", "breaches"]) => {
+            let targets: Vec<(String, String)> = {
+                let mut g = app.lock();
+                let key = g.key_for(token, true)?;
+                if g.settings()?["breachCheckEnabled"] != true {
+                    return Err(HttpError::coded(400, "Breach checking is turned off. Enable it in Settings first.", "DISABLED"));
+                }
+                if g.breach_running {
+                    return Err(HttpError::new(429, "A breach check is already running"));
+                }
+                let only: Option<Vec<&str>> = body.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect());
+                let list = vault::list_entries(g.store()?, &key)?
+                    .into_iter()
+                    .filter(|e| e["type"] == "login" && e["password"].as_str().is_some_and(|p| !p.is_empty()))
+                    .filter(|e| only.as_ref().is_none_or(|o| o.contains(&e["id"].as_str().unwrap_or(""))))
+                    .map(|e| (e["id"].as_str().unwrap_or("").to_string(), e["password"].as_str().unwrap_or("").to_string()))
+                    .collect();
+                g.breach_running = true;
+                list
+            };
+            let results = audit::check_breaches(&targets).await;
+            app.lock().breach_running = false;
+            let results = results.map_err(|e| HttpError::coded(502, format!("Breach check failed: {e}"), "NETWORK"))?;
+            {
+                let mut g = app.lock();
+                let key = g.key_for(token, false)?; // the session may have locked while waiting on the network
+                let checked_at = now_ms();
+                g.store()?.transaction(|s| {
+                    for (id, pw) in &targets {
+                        // Skip items deleted, or whose password changed, while the lookup was in flight.
+                        if s.get(crate::store::Table::Entries, id)?.is_none_or(|r| r.deleted_at.is_some()) {
+                            continue;
+                        }
+                        if let Some(count) = results.get(id) {
+                            let pw = pw.clone();
+                            vault::patch_entry(s, &key, id, json!({ "breach": { "count": count, "checkedAt": checked_at } }), move |d| d.get("password").and_then(Value::as_str) == Some(pw.as_str()))?;
+                        }
+                    }
+                    Ok(())
+                })?;
+            }
+            ok(audit_report(app, token).await?)
+        }
+
+        // ------------------------------------------------------------ import / export
+        ("POST", ["export"]) => {
+            let short = {
+                let mut g = app.lock();
+                g.key_for(token, true)?;
+                is_short_credential(&vault::credential(g.store()?)?)
+            };
+            let format = body.get("format").and_then(Value::as_str).unwrap_or("").to_string();
+            if !["encrypted", "json", "csv"].contains(&format.as_str()) {
+                return Err(HttpError::new(400, "Unknown export format"));
+            }
+            let master = require_string(body.get("masterPassword"), "Master password", 1024)?;
+            if check_password(app, &master).await?.is_none() {
+                return Err(HttpError::coded(401, "Incorrect master password", "BAD_PASSWORD"));
+            }
+            let given = opt_string(body.get("exportPassword"), 1024);
+            let mut export_key = None;
+            if format == "encrypted" {
+                if given.is_empty() && short {
+                    // A backup protected only by a short PIN or pattern would be trivial to open once copied.
+                    return Err(HttpError::coded(400, "Choose a file password for the backup (at least 10 characters).", "NEEDS_EXPORT_PASSWORD"));
+                }
+                let password = if given.is_empty() { master.clone() } else { given };
+                if password != master && validate::len16(&password) < MIN_MASTER_LENGTH {
+                    return Err(HttpError::new(400, format!("Export password must be at least {MIN_MASTER_LENGTH} characters")));
+                }
+                let kdf = crypto::new_kdf_params(false);
+                export_key = Some((derive(password, kdf.clone()).await?, kdf));
+            }
+            let mut g = app.lock();
+            let key = g.key_for(token, false)?;
+            ok(importexport::export(g.store()?, &key, &format, export_key.as_ref().map(|(k, d)| (k, d)))?)
+        }
+        ("POST", ["import"]) => {
+            app.lock().key_for(token, true)?;
+            let content = require_string(body.get("content"), "File content", 90_000_000)?;
+            let password = body.get("password").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
+            let (source, data) = match importexport::parse_import(&content, password.is_some())? {
+                importexport::Parsed::Ready { source, data } => (source, data),
+                importexport::Parsed::Encrypted { kdf, blob } => {
+                    let key = derive(password.unwrap_or_default(), kdf).await?;
+                    ("Keys encrypted export", importexport::open_backup(&key, &blob)?)
+                }
+            };
+            let mut g = app.lock();
+            let key = g.key_for(token, false)?; // the session may have locked during key derivation
+            ok(importexport::import(g.store()?, &key, source, &data)?)
+        }
+
+        // ------------------------------------------------------------ browsers (from the app's Settings)
         ("GET", ["browsers"]) => with!(|g| {
             g.key_for(token, true)?;
-            Ok(json!([]))
+            Ok(Value::Array(g.read_pairings()?.iter().map(ext::public_pairing).collect()))
         }),
-        (_, ["browsers", ..]) => Err(HttpError::coded(501, NOT_YET, "NOT_YET")),
+        ("POST", ["browsers", "approve"]) => with!(|g| {
+            g.key_for(token, true)?;
+            g.sweep();
+            let code = ext::normalize_code(body.get("code"));
+            let found = g.pending.iter().position(|p| p.token.is_none() && code.len() == 6 && crypto::safe_equal(&p.code, &code));
+            let i = found.ok_or_else(|| HttpError::coded(404, "That code doesn’t match. Check the code in the extension, or start again there", "BAD_CODE"))?;
+            let token = crypto::random_token();
+            let (name, origin) = (g.pending[i].name.clone(), g.pending[i].origin.clone());
+            let pairing = json!({ "id": crypto::random_id(), "name": name, "createdAt": now_ms(), "lastUsedAt": null, "hash": ext::hash_token(&token), "origin": origin });
+            let mut list = g.read_pairings()?;
+            list.push(pairing.clone());
+            g.write_pairings(&list)?;
+            g.pending[i].token = Some(token);
+            Ok(ext::public_pairing(&pairing))
+        }),
+        ("DELETE", ["browsers", id]) => with!(|g| {
+            g.key_for(token, true)?;
+            let list = g.read_pairings()?;
+            if !list.iter().any(|p| p["id"] == *id) {
+                return Err(HttpError::new(404, "That browser isn’t connected"));
+            }
+            let rest: Vec<Value> = list.into_iter().filter(|p| p["id"] != *id).collect();
+            g.write_pairings(&rest)?;
+            Ok(json!({ "ok": true }))
+        }),
 
         _ => Ok((404, json!({ "error": "Not found" }))),
     }
@@ -646,7 +863,7 @@ async fn handle(State(app): State<Shared>, req: Request<Body>) -> Response {
     let mut res = if !loopback_host(&parts.headers) {
         (StatusCode::MISDIRECTED_REQUEST, [(header::CONTENT_TYPE, "text/plain")], "Keys only answers on localhost").into_response()
     } else if let Some(path) = parts.uri.path().strip_prefix("/api/") {
-        api(&app, &parts.method, path, &parts.headers, body).await
+        api(&app, &parts.method, path, parts.uri.query(), &parts.headers, body).await
     } else if parts.uri.path() == "/api" {
         json_response(404, json!({ "error": "Not found" }))
     } else {
@@ -656,9 +873,44 @@ async fn handle(State(app): State<Shared>, req: Request<Body>) -> Response {
     res
 }
 
-async fn api(app: &App, method: &Method, path: &str, headers: &HeaderMap, body: Body) -> Response {
-    if path.starts_with("extension/") {
-        return json_response(501, json!({ "error": NOT_YET, "code": "NOT_YET" }));
+async fn read_json(body: Body, limit: usize) -> std::result::Result<Value, Response> {
+    let bytes: Bytes = axum::body::to_bytes(body, limit).await.map_err(|_| json_response(413, json!({ "error": "Request is too large" })))?;
+    if bytes.is_empty() {
+        return Ok(Value::Object(Map::new()));
+    }
+    serde_json::from_slice(&bytes).map_err(|_| json_response(400, json!({ "error": "Malformed JSON" })))
+}
+
+fn respond(out: Result<(u16, Value)>) -> Response {
+    match out {
+        Ok((status, v)) => json_response(status, v),
+        Err(e) => {
+            let mut res = e.into_response();
+            res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            res
+        }
+    }
+}
+
+async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, headers: &HeaderMap, body: Body) -> Response {
+    if let Some(rest) = path.strip_prefix("extension/") {
+        // Web pages can't call these: the custom header forces a CORS preflight, never granted.
+        // An Origin, when sent, has to be an extension's.
+        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+        if method == Method::OPTIONS
+            || headers.get("x-keys-extension").and_then(|v| v.to_str().ok()) != Some("1")
+            || origin.is_some_and(|o| !ext::is_extension_origin(o))
+        {
+            return json_response(403, json!({ "error": "Request blocked", "code": "FORBIDDEN" }));
+        }
+        let value = match read_json(body, 64 * 1024).await {
+            Ok(v) => v,
+            Err(res) => return res,
+        };
+        let token = headers.get("x-keys-extension-token").and_then(|v| v.to_str().ok());
+        let out = extension_route(app, method, rest, query, origin, token, &value).await;
+        app.lock().after();
+        return respond(out);
     }
     // CSRF / cross-origin protection: a custom header, our exact Origin, and same-origin fetches only.
     let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
@@ -672,30 +924,254 @@ async fn api(app: &App, method: &Method, path: &str, headers: &HeaderMap, body: 
     {
         return json_response(403, json!({ "error": "Request blocked", "code": "FORBIDDEN" }));
     }
-    let bytes: Bytes = match axum::body::to_bytes(body, 1024 * 1024).await {
-        Ok(b) => b,
-        Err(_) => return json_response(413, json!({ "error": "Request is too large" })),
-    };
-    let value: Value = if bytes.is_empty() {
-        Value::Object(Map::new())
-    } else {
-        match serde_json::from_slice(&bytes) {
-            Ok(v) => v,
-            Err(_) => return json_response(400, json!({ "error": "Malformed JSON" })),
-        }
+    // Backups carry each item's icon, so imports may be large.
+    let limit = if path == "import" { 100 * 1024 * 1024 } else { 1024 * 1024 };
+    let value = match read_json(body, limit).await {
+        Ok(v) => v,
+        Err(res) => return res,
     };
     let token = headers.get("x-keys-session").and_then(|v| v.to_str().ok());
     let out = route(app, method, path, token, &value).await;
     app.lock().after();
-    match out {
-        Ok((status, v)) => json_response(status, v),
-        Err(e) => {
-            let mut res = e.into_response();
-            res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-            res
+    respond(out)
+}
+
+/// The paired browser making this request, or a 401 that tells the extension to pair again.
+fn pairing_of(g: &mut Inner, token: Option<&str>, origin: Option<&str>) -> Result<Value> {
+    let not_paired = || HttpError::coded(401, "This browser isn’t connected to Keys", "NOT_PAIRED");
+    let token = token.filter(|t| !t.is_empty()).ok_or_else(not_paired)?;
+    let hash = ext::hash_token(token);
+    let mut list = g.read_pairings()?;
+    let i = list.iter().position(|p| p["hash"].as_str().is_some_and(|h| crypto::safe_equal(h, &hash))).ok_or_else(not_paired)?;
+    // A token copied out of the extension doesn't work from anywhere else. Chrome leaves Origin off
+    // some extension requests (plain GETs), so only a different one is refused.
+    if let (Some(bound), Some(origin)) = (list[i]["origin"].as_str(), origin) {
+        if bound != origin {
+            return Err(not_paired());
         }
     }
+    // Remembered roughly, so a busy page doesn't write to the database on every request.
+    let now = now_ms();
+    if list[i]["lastUsedAt"].as_i64().is_none_or(|t| now - t > 60_000) {
+        list[i]["lastUsedAt"] = now.into();
+        g.write_pairings(&list)?;
+    }
+    Ok(list[i].clone())
 }
+
+/// The vault key, if Keys is unlocked. Filling counts as activity, so Keys stays unlocked while used.
+fn ext_key(g: &mut Inner, touch: bool) -> Result<Key> {
+    g.session.peek(touch, now_ms()).ok_or_else(|| HttpError::coded(401, "Keys is locked", "LOCKED"))
+}
+
+/// The saved login a submitted one would update: same username, saved for exactly this site
+/// (filling also works on subdomains, but a subdomain must never overwrite its parent's password).
+fn login_for(entries: &[Map<String, Value>], url: &str, username: &str) -> Option<Map<String, Value>> {
+    let page = ext::site_of(url, false)?;
+    entries
+        .iter()
+        .find(|e| {
+            let saved_url = e["url"].as_str().unwrap_or("");
+            e["type"] == "login"
+                && ext::site_of(saved_url, true).is_some_and(|saved| ext::bare_host(&saved) == ext::bare_host(&page) && saved.port() == page.port())
+                && ext::matches_site(saved_url, url)
+                && e["username"].as_str().unwrap_or("").trim().to_lowercase() == username.trim().to_lowercase()
+        })
+        .cloned()
+}
+
+struct SaveInput {
+    url: String,
+    site: url::Url,
+    username: String,
+    password: String,
+}
+
+fn save_input(body: &Value) -> Result<SaveInput> {
+    let url = require_string(body.get("url"), "Page address", 4096)?;
+    let site = ext::site_of(&url, false).ok_or_else(|| HttpError::new(400, "Only websites can be saved"))?;
+    let password = require_string(body.get("password"), "Password", 4096)?;
+    let username = opt_string(body.get("username"), 512);
+    Ok(SaveInput { url, site, username, password })
+}
+
+async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&str>, origin: Option<&str>, token: Option<&str>, body: &Value) -> Result<(u16, Value)> {
+    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+    let ok = |v: Value| Ok((200, v));
+    let q = |name: &str| query.and_then(|q| url::form_urlencoded::parse(q.as_bytes()).find(|(k, _)| k == name).map(|(_, v)| v.into_owned()));
+
+    match (method.as_str(), parts.as_slice()) {
+        ("POST", ["pair"]) => {
+            let mut g = app.lock();
+            g.sweep();
+            if !g.storage.available() || !vault::is_initialized(g.store()?)? {
+                return Err(HttpError::coded(409, "Set up Keys first, then connect this browser", "NO_VAULT"));
+            }
+            // Only an extension can ask, and each gets one open request, so no one can use up the slots.
+            let origin = origin.filter(|o| ext::is_extension_origin(o)).ok_or_else(|| HttpError::coded(403, "Request blocked", "FORBIDDEN"))?;
+            g.pending.retain(|p| !(p.origin == origin && p.token.is_none()));
+            if g.pending.len() >= ext::MAX_PENDING {
+                return Err(HttpError::new(429, "Too many connection requests. Try again in a few minutes"));
+            }
+            let (id, code, now) = (crypto::random_id(), ext::new_code(), now_ms());
+            g.pending.push(Pending { id: id.clone(), code: code.clone(), origin: origin.to_string(), name: ext::clean_name(body.get("name")), created_at: now, token: None });
+            ok(json!({ "requestId": id, "code": code, "expiresAt": now + ext::PAIR_TTL_MS, "appUrl": app.app_url }))
+        }
+        ("GET", ["pair", id]) => {
+            let mut g = app.lock();
+            g.sweep();
+            let Some(i) = g.pending.iter().position(|p| p.id == *id) else { return ok(json!({ "status": "expired" })) };
+            if g.pending[i].token.is_some() {
+                let p = g.pending.remove(i); // the token is handed over exactly once
+                return ok(json!({ "status": "approved", "token": p.token }));
+            }
+            ok(json!({ "status": "pending" }))
+        }
+        ("GET", ["status"]) => {
+            let mut g = app.lock();
+            let pairing = pairing_of(&mut g, token, origin)?;
+            let unlocked = g.session.peek(false, now_ms()).is_some();
+            let credential = vault::credential(g.store()?)?;
+            let clear = g.settings()?["clipboardClearSeconds"].clone();
+            ok(json!({ "unlocked": unlocked, "credential": credential, "appUrl": app.app_url, "browser": pairing["name"], "clipboardClearSeconds": clear }))
+        }
+        // Logins for the page (or all of them, for the popup's search). Never includes passwords.
+        ("GET", ["logins"]) => {
+            let mut g = app.lock();
+            pairing_of(&mut g, token, origin)?;
+            let key = ext_key(&mut g, false)?;
+            let url = q("url").unwrap_or_default();
+            let all = q("all").as_deref() == Some("1");
+            let mut logins: Vec<Value> = vault::list_entries(g.store()?, &key)?
+                .iter()
+                .filter(|e| e["type"] == "login" && (e["username"].as_str().is_some_and(|u| !u.is_empty()) || e["password"].as_str().is_some_and(|p| !p.is_empty())))
+                .map(|e| {
+                    let matches = !url.is_empty() && ext::matches_site(e["url"].as_str().unwrap_or(""), &url);
+                    json!({ "id": e["id"], "title": e["title"], "username": e["username"], "url": e["url"], "icon": e["icon"], "matches": matches })
+                })
+                .filter(|e| all || e["matches"] == true)
+                .collect();
+            logins.sort_by(|a, b| {
+                (b["matches"] == true).cmp(&(a["matches"] == true)).then_with(|| a["title"].as_str().unwrap_or("").to_lowercase().cmp(&b["title"].as_str().unwrap_or("").to_lowercase()))
+            });
+            ok(json!({ "logins": logins }))
+        }
+        // A login's username and password, but only for a page it belongs to.
+        ("POST", ["fill"]) => {
+            let mut g = app.lock();
+            pairing_of(&mut g, token, origin)?;
+            let key = ext_key(&mut g, true)?;
+            let id = require_string(body.get("id"), "Item", 64)?;
+            let url = require_string(body.get("url"), "Page address", 4096)?;
+            let e = vault::get_entry(g.store()?, &key, &id)?;
+            if e["type"] != "login" || !ext::matches_site(e["url"].as_str().unwrap_or(""), &url) {
+                return Err(HttpError::coded(403, "That login isn’t for this site", "WRONG_SITE"));
+            }
+            ok(json!({ "username": e["username"], "password": e["password"] }))
+        }
+        // What saving would do; nothing is written.
+        ("POST", ["save", "check"]) => {
+            let mut g = app.lock();
+            pairing_of(&mut g, token, origin)?;
+            let key = ext_key(&mut g, false)?;
+            let input = save_input(body)?;
+            let entries = vault::list_entries(g.store()?, &key)?;
+            let existing = login_for(&entries, &input.url, &input.username);
+            let status = match &existing {
+                None => "new",
+                Some(e) if e["password"].as_str() == Some(input.password.as_str()) => "same",
+                Some(_) => "update",
+            };
+            ok(json!({ "status": status, "title": existing.map_or(Value::Null, |e| e["title"].clone()) }))
+        }
+        // Needs the person's click on the prompt, which the extension enforces.
+        ("POST", ["save"]) => {
+            let mut g = app.lock();
+            pairing_of(&mut g, token, origin)?;
+            let key = ext_key(&mut g, true)?;
+            let input = save_input(body)?;
+            let entries = vault::list_entries(g.store()?, &key)?;
+            if let Some(existing) = login_for(&entries, &input.url, &input.username) {
+                let id = existing["id"].as_str().unwrap_or("").to_string();
+                if existing["password"].as_str() == Some(input.password.as_str()) {
+                    return ok(json!({ "status": "same", "id": id }));
+                }
+                let mut next = existing.clone();
+                next.insert("password".into(), input.password.clone().into());
+                let sanitized = validate::sanitize_entry_input(&Value::Object(next))?;
+                vault::update_entry(g.store()?, &key, &id, sanitized)?;
+                return ok(json!({ "status": "updated", "id": id }));
+            }
+            let host = ext::bare_host(&input.site);
+            let host_units: Vec<u16> = host.encode_utf16().take(200).collect();
+            let host_title = String::from_utf16_lossy(&host_units);
+            let url = if input.site.scheme() == "https" {
+                match input.site.port() {
+                    Some(p) => format!("{host}:{p}"),
+                    None => host.clone(),
+                }
+            } else {
+                input.site.origin().ascii_serialization()
+            };
+            let entry = validate::sanitize_entry_input(&json!({
+                "type": "login", "title": host_title, "username": input.username.trim(), "password": input.password, "url": url,
+                "notes": "", "codes": "", "categoryId": null, "favorite": false, "icon": "", "customFields": [],
+            }))?;
+            let created = vault::create_entry(g.store()?, &key, entry)?;
+            ok(json!({ "status": "saved", "id": created["id"] }))
+        }
+        // For the popup's copy buttons, which the person presses themselves.
+        ("POST", ["secret"]) => {
+            let mut g = app.lock();
+            pairing_of(&mut g, token, origin)?;
+            let key = ext_key(&mut g, true)?;
+            let id = require_string(body.get("id"), "Item", 64)?;
+            let e = vault::get_entry(g.store()?, &key, &id)?;
+            if e["type"] != "login" {
+                return Err(HttpError::new(400, "Only logins can be copied here"));
+            }
+            ok(json!({ "username": e["username"], "password": e["password"] }))
+        }
+        // Unlocks Keys from the extension, with the same checks and lockout as the app.
+        ("POST", ["unlock"]) => {
+            let label = {
+                let mut g = app.lock();
+                pairing_of(&mut g, token, origin)?;
+                if g.session.unlocked() {
+                    return ok(json!({ "unlocked": true }));
+                }
+                if !vault::is_initialized(g.store()?)? {
+                    return Err(HttpError::new(409, "Setup isn’t finished yet"));
+                }
+                credential_label(&vault::credential(g.store()?)?)
+            };
+            let secret = require_string(body.get("secret"), "Password", 1024)?;
+            let dek = check_password(app, &secret).await?.ok_or_else(|| HttpError::coded(401, format!("Incorrect {label}"), "BAD_PASSWORD"))?;
+            rearm_pin(app, &dek).await?;
+            let mut g = app.lock();
+            g.vault_id = g.current_vault_id();
+            g.settings()?;
+            g.session.open(dek, now_ms());
+            ok(json!({ "unlocked": true }))
+        }
+        ("POST", ["lock"]) => {
+            let mut g = app.lock();
+            pairing_of(&mut g, token, origin)?;
+            g.session.lock();
+            ok(json!({ "unlocked": false }))
+        }
+        // The extension forgetting itself ("Disconnect" in its settings).
+        ("POST", ["disconnect"]) => {
+            let mut g = app.lock();
+            let pairing = pairing_of(&mut g, token, origin)?;
+            let rest: Vec<Value> = g.read_pairings()?.into_iter().filter(|p| p["id"] != pairing["id"]).collect();
+            g.write_pairings(&rest)?;
+            ok(json!({ "ok": true }))
+        }
+        _ => Ok((404, json!({ "error": "Not found" }))),
+    }
+}
+
 
 fn static_file(uri: &Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
@@ -724,13 +1200,23 @@ pub async fn serve(storage: Storage, port: u16) -> std::io::Result<()> {
 
 /// Same, on a socket the caller already bound (the Mac app binds before opening its window).
 pub async fn serve_on(storage: Storage, port: u16, listener: tokio::net::TcpListener) -> std::io::Result<()> {
-    let app = App::new(storage, port);
+    serve_app(App::new(storage, port), listener).await
+}
+
+/// Serves an existing App (the Mac app keeps a handle to it, to clean up on quit). Locks idle
+/// sessions every second and refreshes the "open on this computer" marker every minute.
+pub async fn serve_app(app: Shared, listener: tokio::net::TcpListener) -> std::io::Result<()> {
     let ticker = app.clone();
     tokio::spawn(async move {
         let mut every = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut n = 0u64;
         loop {
             every.tick().await;
             ticker.tick();
+            if n % 60 == 0 {
+                ticker.beat();
+            }
+            n += 1;
         }
     });
     axum::serve(listener, router(app)).await
