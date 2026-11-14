@@ -26,3 +26,4 @@ Thumbs.db
 *.key
 extension/*.crx
 test/
+dist-phone

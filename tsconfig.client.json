@@ -17,5 +17,5 @@
     "noUnusedParameters": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src", "shared", "vite.config.ts"]
+  "include": ["src", "shared", "phone", "vite.config.ts", "vite.phone.config.ts"]
 }
