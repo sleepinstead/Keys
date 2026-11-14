@@ -5970,3 +5970,30 @@ button.sync-note {
   background: #22c55e;
   box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 20%, transparent);
 }
+
+/* Phones: keep clear of the notch and home indicator, size to the visible viewport,
+   and stop iOS Safari zooming into inputs (it zooms anything under 16px). */
+@media (max-width: 860px) {
+  .shell {
+    height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  }
+  .sidebar {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .list-pane,
+  .detail-scroll {
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  }
+  .dialog {
+    max-height: 92dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  input,
+  textarea,
+  select,
+  .input {
+    font-size: max(16px, 1em);
+  }
+}
