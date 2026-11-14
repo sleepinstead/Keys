@@ -510,3 +510,13 @@ h2 {
     animation: none;
   }
 }
+
+/* Start and lock screens: everything on the centre line. */
+.center {
+  text-align: center;
+}
+.center .brand {
+  flex-direction: column;
+  align-self: center;
+  gap: 6px;
+}
