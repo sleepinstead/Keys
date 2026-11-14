@@ -1,14 +1,12 @@
-// Google Drive, read-only, one file: sign in (OAuth token in the URL fragment, which works in an
-// iPhone Home Screen app where pop-ups don't), pick Keys.sqlite once with Google's picker
-// (that grant is what the drive.file scope allows), then check it for changes and download it.
+// Google Drive, read-only: sign in (OAuth token in the URL fragment, which works in an iPhone
+// Home Screen app where pop-ups don't), find Keys.sqlite, then check it for changes and download it.
+// No API key: the client ID is the only Google value in the page, and it's public by design.
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
-const APP_ID = import.meta.env.VITE_GOOGLE_APP_ID as string | undefined; // the Cloud project number
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 const TOKEN_KEY = 'keys-drive-token';
 
-export const driveConfigured = Boolean(CLIENT_ID && API_KEY && APP_ID);
+export const driveConfigured = Boolean(CLIENT_ID);
 
 interface Token {
   value: string;
@@ -72,7 +70,7 @@ export class SignInNeeded extends Error {
 async function api(path: string): Promise<Response> {
   const t = token();
   if (!t) throw new SignInNeeded();
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${path}`, { headers: { Authorization: `Bearer ${t}` } });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files${path.startsWith('?') ? '' : '/'}${path}`, { headers: { Authorization: `Bearer ${t}` } });
   if (res.status === 401) {
     sessionStorage.removeItem(TOKEN_KEY);
     throw new SignInNeeded();
@@ -90,66 +88,29 @@ export async function download(id: string): Promise<Uint8Array> {
   return new Uint8Array(await (await api(`${encodeURIComponent(id)}?alt=media`)).arrayBuffer());
 }
 
-// ------------------------------------------------------------------ picker
+// ------------------------------------------------------------------ finding the vault
 
-interface PickerResult {
-  action: string;
-  docs?: { id: string; name: string }[];
-}
-interface PickerBuilder {
-  setAppId(id: string): PickerBuilder;
-  setOAuthToken(t: string): PickerBuilder;
-  setDeveloperKey(k: string): PickerBuilder;
-  addView(v: unknown): PickerBuilder;
-  setTitle(t: string): PickerBuilder;
-  setCallback(cb: (r: PickerResult) => void): PickerBuilder;
-  build(): { setVisible(v: boolean): void };
-}
-declare const gapi: { load(name: string, cb: () => void): void };
-declare const google: {
-  picker: {
-    Action: { PICKED: string; CANCEL: string };
-    DocsView: new () => { setIncludeFolders(v: boolean): unknown; setMode(m: string): unknown };
-    DocsViewMode: { LIST: string };
-    PickerBuilder: new () => PickerBuilder;
-  };
-};
-
-let pickerReady: Promise<void> | null = null;
-function loadPicker(): Promise<void> {
-  pickerReady ??= new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://apis.google.com/js/api.js';
-    s.onload = () => gapi.load('picker', () => resolve());
-    s.onerror = () => {
-      pickerReady = null;
-      reject(new Error('Couldn’t reach Google. Check your connection.'));
-    };
-    document.head.append(s);
-  });
-  return pickerReady;
+export interface Found {
+  id: string;
+  name: string;
+  modifiedTime: string;
+  folder: string;
 }
 
-/** Google's own file picker; resolves with the chosen file, or null if cancelled. */
-export async function pickFile(): Promise<{ id: string; name: string } | null> {
-  const t = token();
-  if (!t) throw new SignInNeeded();
-  await loadPicker();
-  return new Promise((resolve) => {
-    const view = new google.picker.DocsView();
-    view.setIncludeFolders(true);
-    view.setMode(google.picker.DocsViewMode.LIST);
-    new google.picker.PickerBuilder()
-      .setAppId(APP_ID!)
-      .setOAuthToken(t)
-      .setDeveloperKey(API_KEY!)
-      .addView(view)
-      .setTitle('Choose your Keys.sqlite')
-      .setCallback((r) => {
-        if (r.action === google.picker.Action.PICKED && r.docs?.[0]) resolve({ id: r.docs[0].id, name: r.docs[0].name });
-        else if (r.action === google.picker.Action.CANCEL) resolve(null);
-      })
-      .build()
-      .setVisible(true);
-  });
+/** Every file in your Drive whose name starts with "Keys" and ends in .sqlite (sync copies included), newest first. */
+export async function findVaults(): Promise<Found[]> {
+  const q = "name contains 'Keys' and trashed = false and mimeType != 'application/vnd.google-apps.folder'";
+  const res = await api(`?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime,parents)&orderBy=modifiedTime desc&pageSize=50&spaces=drive`);
+  const { files = [] } = (await res.json()) as { files?: (Omit<Found, 'folder'> & { parents?: string[] })[] };
+  const vaults = files.filter((f) => /^keys.*\.sqlite$/i.test(f.name));
+  // Folder names, so two files called Keys.sqlite can be told apart.
+  const names = new Map<string, string>();
+  for (const pid of new Set(vaults.flatMap((f) => f.parents ?? []))) {
+    try {
+      names.set(pid, ((await (await api(`${encodeURIComponent(pid)}?fields=name`)).json()) as { name: string }).name);
+    } catch {
+      /* shared folder we can't name: leave it blank */
+    }
+  }
+  return vaults.map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime, folder: names.get(f.parents?.[0] ?? '') ?? '' }));
 }

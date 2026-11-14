@@ -26,6 +26,7 @@ let query = '';
 let status: { text: string; action?: { label: string; run: () => void } } | null = null;
 let error = '';
 let busy = false;
+let choices: drive.Found[] | null = null;
 
 const root = document.getElementById('app')!;
 
@@ -117,8 +118,27 @@ async function chooseFromDrive() {
     return drive.signIn();
   }
   try {
-    const picked = await drive.pickFile();
-    if (!picked) return;
+    busy = true;
+    render();
+    const found = await drive.findVaults();
+    busy = false;
+    if (found.length === 0) throw new Error('No Keys.sqlite in your Google Drive. Check the file is uploaded, then try again.');
+    if (found.length > 1) {
+      choices = found;
+      error = '';
+      return render();
+    }
+    await openFromDrive(found[0]!);
+  } catch (e) {
+    busy = false;
+    error = (e as Error).message;
+    render();
+  }
+}
+
+async function openFromDrive(picked: { id: string }) {
+  choices = null;
+  try {
     busy = true;
     render();
     const info = await drive.fileInfo(picked.id);
@@ -226,7 +246,19 @@ function startScreen() {
     h('h1', {}, 'Your passwords, on your iPhone'),
     h('p', { class: 'muted' }, 'Keys opens the vault file your computers use, unlocks it on this phone, and never changes it.'),
     drive.driveConfigured
-      ? h('button', { class: 'btn primary', disabled: busy, onclick: chooseFromDrive }, busy ? 'Downloading…' : 'Choose from Google Drive')
+      ? choices
+        ? h(
+            'div',
+            { class: 'stack' },
+            h('p', { class: 'muted' }, 'Which one is your vault?'),
+            ...choices.map((f) =>
+              h('button', { class: 'btn choice', disabled: busy, onclick: () => openFromDrive(f) },
+                h('strong', {}, f.name),
+                h('small', {}, [f.folder, new Date(f.modifiedTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })].filter(Boolean).join(' · ')),
+              ),
+            ),
+          )
+        : h('button', { class: 'btn primary', disabled: busy, onclick: chooseFromDrive }, busy ? 'Looking in Google Drive…' : 'Open from Google Drive')
       : h('p', { class: 'note' }, 'Google Drive isn’t set up in this build yet. You can still open the file from the Files app.'),
     filePicker('Open from Files instead', 'btn'),
     error && h('p', { class: 'error', role: 'alert' }, error),

@@ -520,3 +520,15 @@ h2 {
   align-self: center;
   gap: 6px;
 }
+
+.btn.choice {
+  flex-direction: column;
+  gap: 2px;
+  min-height: 60px;
+  padding: 8px 16px;
+}
+.btn.choice small {
+  color: var(--text-3);
+  font-weight: 400;
+  font-size: 13px;
+}
