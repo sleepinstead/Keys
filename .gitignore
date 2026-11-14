@@ -27,3 +27,7 @@ Thumbs.db
 extension/*.crx
 test/
 dist-phone
+
+# Rust / Tauri build output
+desktop/target
+desktop/app/gen
