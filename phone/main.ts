@@ -8,7 +8,23 @@ import './phone.css';
 import * as cache from './cache.ts';
 import * as drive from './drive.ts';
 import { decryptAll, readVault, unlock, WrongCredential } from './vault.ts';
-import type { LockedVault, PhoneCategory, PhoneEntry } from './vault.ts';
+import type { Derive, LockedVault, PhoneCategory, PhoneEntry } from './vault.ts';
+
+/** A fresh worker per unlock: Argon2's memory (up to 512 MB for a PIN) is freed as soon as it's done. */
+const deriveInWorker: Derive = (password, kdf) =>
+  new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./kdf.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<{ kek?: Uint8Array; error?: string }>) => {
+      worker.terminate();
+      if (e.data.kek) resolve(e.data.kek);
+      else reject(new Error(e.data.error ?? 'Unlock failed'));
+    };
+    worker.onerror = () => {
+      worker.terminate();
+      reject(new Error('This iPhone ran out of memory while unlocking. Close other apps and try again.'));
+    };
+    worker.postMessage({ password, kdf });
+  });
 
 const IDLE_LOCK_MS = 5 * 60_000;
 const HIDDEN_LOCK_MS = 60_000;
@@ -26,6 +42,8 @@ let query = '';
 let status: { text: string; action?: { label: string; run: () => void } } | null = null;
 let error = '';
 let busy = false;
+/** Right after a correct PIN or password: the lock screen shows its success state for a moment. */
+let celebrating = false;
 let choices: drive.Found[] | null = null;
 
 const root = document.getElementById('app')!;
@@ -168,10 +186,14 @@ async function tryUnlock(credential: string) {
   busy = true;
   error = '';
   render();
-  await new Promise((r) => setTimeout(r, 30)); // let "Unlocking…" paint before Argon2 takes the main thread
   try {
-    key = await unlock(locked, credential);
+    key = await unlock(locked, credential, deriveInWorker);
     await decrypt();
+    busy = false;
+    celebrating = true;
+    render();
+    await new Promise((r) => setTimeout(r, matchMedia('(prefers-reduced-motion: reduce)').matches ? 250 : 700));
+    celebrating = false;
     void refresh();
   } catch (e) {
     error = e instanceof WrongCredential ? wrongText() : (e as Error).message;
@@ -224,7 +246,7 @@ document.addEventListener('visibilitychange', () => {
 function render() {
   const scroll = root.querySelector('.scroll')?.scrollTop ?? 0;
   const focused = document.activeElement?.id;
-  root.replaceChildren(!locked ? startScreen() : !key ? lockScreen() : openId ? detailScreen() : listScreen());
+  root.replaceChildren(!locked ? startScreen() : !key || celebrating ? lockScreen() : openId ? detailScreen() : listScreen());
   if (focused) (document.getElementById(focused) as HTMLInputElement | null)?.focus({ preventScroll: true });
   const sc = root.querySelector('.scroll');
   if (sc && !openId) sc.scrollTop = scroll;
@@ -279,19 +301,26 @@ function lockScreen() {
             type: 'password',
             autocomplete: 'current-password',
             placeholder: kind.type === 'passphrase' ? 'Passphrase' : 'Master password',
-            disabled: busy,
+            disabled: busy || celebrating,
+            value: celebrating ? '••••••••••' : '',
+            'data-success': celebrating ? '' : undefined,
           });
           return h(
             'form',
             { class: 'stack', onsubmit: (e: Event) => (e.preventDefault(), tryUnlock(input.value)) },
             input,
-            h('button', { class: 'btn primary', disabled: busy }, busy ? 'Unlocking…' : 'Unlock'),
+            unlockButton(),
           );
         })();
-  queueMicrotask(() => document.getElementById('credential')?.focus());
+  // iOS only raises the keyboard for a focus that follows a tap, so: focus now (works with a hardware
+  // keyboard and on the Mac), and any tap on the lock screen goes to the field.
+  queueMicrotask(() => document.getElementById('credential')?.focus({ preventScroll: true }));
+  const focusField = (e: Event) => {
+    if (!(e.target as HTMLElement).closest('button, a, label, input')) document.getElementById('credential')?.focus({ preventScroll: true });
+  };
   return h(
     'main',
-    { class: 'center' },
+    { class: 'center lock', onclick: focusField },
     brand(),
     h('p', { class: 'muted' }, copy ? `${copy.name} · ${copy.source === 'drive' ? 'Google Drive' : 'from Files'} · ${ago(copy.fetchedAt)}` : ''),
     form,
@@ -318,7 +347,8 @@ function pinCells(length: number) {
     pattern: '[0-9]*',
     autocomplete: 'off',
     maxLength: length,
-    disabled: busy,
+    disabled: busy || celebrating,
+    value: busy || celebrating ? '0'.repeat(length) : '', // keeps the boxes full (dots) while checking and after
     'aria-label': `${length}-digit PIN`,
     oninput: () => {
       input.value = input.value.replace(/\D/g, '').slice(0, length);
@@ -328,13 +358,21 @@ function pinCells(length: number) {
     onfocus: () => paint(input.value, true),
     onblur: () => paint(input.value, false),
   });
-  const row = h('div', { class: 'otp', 'data-length': length, 'data-invalid': error ? '' : undefined, 'data-busy': busy ? '' : undefined, onclick: () => input.focus() }, input);
+  const row = h('div', { class: 'otp', 'data-length': length, 'data-invalid': error ? '' : undefined, 'data-busy': busy ? '' : undefined, 'data-success': celebrating ? '' : undefined, onclick: () => input.focus() }, input);
   cells.forEach((c, i) => {
     if (length === 6 && i === 3) row.append(h('span', { class: 'otp-sep', 'aria-hidden': 'true' }));
     row.append(c);
   });
-  paint(busy ? '•'.repeat(length) : '', false);
-  return h('div', { class: 'stack' }, h('p', { class: 'muted pin-hint' }, busy ? 'Unlocking…' : `Enter your ${length}-digit PIN`), row);
+  paint(busy || celebrating ? '•'.repeat(length) : '', false);
+  return h('div', { class: 'stack' }, h('p', { class: 'muted pin-hint' }, celebrating ? 'Unlocked' : busy ? 'Unlocking…' : `Enter your ${length}-digit PIN`), row);
+}
+
+function unlockButton(onclick?: () => void) {
+  return h(
+    'button',
+    { class: `btn primary${celebrating ? ' success' : ''}`, type: onclick ? 'button' : 'submit', disabled: busy || celebrating, onclick },
+    celebrating ? '✓ Unlocked' : busy ? 'Unlocking…' : 'Unlock',
+  );
 }
 
 function patternPad() {
@@ -361,7 +399,7 @@ function patternPad() {
       'div',
       { class: 'row' },
       h('button', { class: 'btn', type: 'button', onclick: () => (points.length = 0, dots.forEach((d) => delete d.dataset.n)) }, 'Clear'),
-      h('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: () => tryUnlock(points.join('-')) }, busy ? 'Unlocking…' : 'Unlock'),
+      unlockButton(() => tryUnlock(points.join('-'))),
     ),
   );
 }

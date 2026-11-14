@@ -532,3 +532,60 @@ h2 {
   font-weight: 400;
   font-size: 13px;
 }
+
+/* Lock screen sits in the top part of the screen, so the iPhone keyboard never covers the field. */
+.center.lock {
+  justify-content: flex-start;
+  padding-top: calc(max(24px, 9dvh) + env(safe-area-inset-top));
+}
+
+/* Correct PIN or password: a short green wave before the vault opens (as on the desktop). */
+:root {
+  --good: #16a34a;
+}
+.otp[data-success] .otp-cell {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 8%, var(--bg));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 12%, transparent);
+  animation: otp-wave 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation-delay: calc(var(--i) * 40ms);
+}
+.otp[data-success] .otp-dot {
+  background: var(--good);
+}
+.otp[data-success] {
+  opacity: 1;
+}
+.input[data-success] {
+  border-color: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 12%, transparent);
+  opacity: 1;
+}
+.btn.primary.success,
+.btn.primary.success:disabled {
+  background: var(--good);
+  border-color: var(--good);
+  color: #fff;
+  opacity: 1;
+  animation: unlock-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.lock:has([data-success], .success) .brand img {
+  animation: unlock-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes otp-wave {
+  40% {
+    transform: translateY(-6px) scale(1.04);
+  }
+}
+@keyframes unlock-pop {
+  40% {
+    transform: scale(1.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .otp[data-success] .otp-cell,
+  .btn.primary.success,
+  .lock:has([data-success], .success) .brand img {
+    animation: none;
+  }
+}

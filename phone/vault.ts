@@ -104,17 +104,23 @@ async function open(key: CryptoKey, blob: Uint8Array, aad: string): Promise<Uint
 
 const aesKey = (raw: Uint8Array) => crypto.subtle.importKey('raw', raw as Uint8Array<ArrayBuffer>, 'AES-GCM', false, ['decrypt']);
 
-/** Master credential → Argon2id → KEK → unwraps the vault key (DEK), kept non-extractable. */
-export async function unlock(vault: LockedVault, credential: string): Promise<CryptoKey> {
-  const kek = await argon2id({
-    password: credential.normalize('NFKC'),
-    salt: b64(vault.kdf.salt),
-    memorySize: vault.kdf.memory,
-    iterations: vault.kdf.passes,
-    parallelism: vault.kdf.parallelism,
+/** Argon2id with the vault's settings. The app runs this in a worker (kdf.worker.ts) so the page never freezes. */
+export type Derive = (password: string, kdf: Kdf) => Promise<Uint8Array>;
+
+export const deriveKek: Derive = (password, kdf) =>
+  argon2id({
+    password: password.normalize('NFKC'),
+    salt: b64(kdf.salt),
+    memorySize: kdf.memory,
+    iterations: kdf.passes,
+    parallelism: kdf.parallelism,
     hashLength: 32,
     outputType: 'binary',
   });
+
+/** Master credential → Argon2id → KEK → unwraps the vault key (DEK), kept non-extractable. */
+export async function unlock(vault: LockedVault, credential: string, derive: Derive = deriveKek): Promise<CryptoKey> {
+  const kek = await derive(credential, vault.kdf);
   let dek: Uint8Array;
   try {
     dek = await open(await aesKey(kek), vault.wrapped, DEK_AAD);
