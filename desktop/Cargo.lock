@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "keys-app"
-version = "1.1.0"
+version = "0.1.0"
 dependencies = [
  "keys-core",
  "tauri",
