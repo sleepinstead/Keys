@@ -4,6 +4,8 @@ import { buildAuditReport, checkBreaches, rateLogins } from './audit.ts';
 import type { RangeFetcher } from './audit.ts';
 import { fetchSiteIcon } from './favicon.ts';
 import { browse, Storage } from './storage.ts';
+import { findConflicts, mergeConflict } from './sharing.ts';
+import type { Presence } from './sharing.ts';
 import type { IconFetcher } from './favicon.ts';
 import { exportVault, importVault } from './importExport.ts';
 import { SESSION_HEADER } from './security.ts';
@@ -27,9 +29,10 @@ interface Deps {
   fetchRange?: RangeFetcher;
   fetchIcon?: IconFetcher;
   storage: Storage;
+  presence: Presence;
 }
 
-export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIcon }: Deps): express.Router {
+export function createApi({ vault, storage, sessions, quick, presence, fetchRange, fetchIcon }: Deps): express.Router {
   const api = express.Router();
   const json = express.json({ limit: '1mb' });
   const bigJson = express.json({ limit: '100mb' }); // backups carry each item's icon
@@ -256,6 +259,27 @@ export function createApi({ vault, storage, sessions, quick, fetchRange, fetchIc
   api.post('/session/ping', (req, res) => {
     keyFor(req);
     res.json({ expiresAt: sessions.expiresAt() });
+  });
+
+  // ------------------------------------------------------------- sharing
+  // One file used from several computers through a synced folder.
+
+  /** Polled by the app: has the data changed on another device, who else has it open, any conflict copies. */
+  api.get('/sync', (req, res) => {
+    keyFor(req, false); // looking doesn't count as activity, so it never keeps Keys unlocked
+    storage.checkForChanges();
+    res.json({ revision: storage.revision, devices: presence.others(), conflicts: findConflicts(vault.store) });
+  });
+
+  /** Merges a conflict copy the sync app made (newest version of each item wins), then removes it. */
+  api.post('/sync/merge', json, (req, res) => {
+    keyFor(req);
+    const file = requireString(req.body?.path, 'Copy', 4096);
+    try {
+      res.json(mergeConflict(vault.store, file));
+    } catch (err) {
+      throw new HttpError(409, err instanceof Error ? err.message : 'Couldn’t merge that copy');
+    }
   });
 
   // -------------------------------------------------------------- tools

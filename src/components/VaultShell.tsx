@@ -7,7 +7,7 @@ import { applyAppearance } from '../App.tsx';
 import { SettingsProvider, useConfirm, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
 import { useSiteIcons } from '../siteIcons.ts';
-import type { Appearance, AuditReport, Category, CategoryColor, Entry, EntrySummary, EntryType, Settings, VaultStatus } from '../../shared/types.ts';
+import type { Appearance, AuditReport, SyncStatus, Category, CategoryColor, Entry, EntrySummary, EntryType, Settings, VaultStatus } from '../../shared/types.ts';
 import { hostname, isTypingTarget, modKey, TYPE_LABELS } from '../util.ts';
 import { CommandPalette } from './CommandPalette.tsx';
 import type { PaletteActions } from './CommandPalette.tsx';
@@ -178,6 +178,47 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
     }, 400);
   }, [onAuditReport]);
   useEffect(() => () => window.clearTimeout(auditTimer.current), []);
+
+  // The same database file on other computers (through Google Drive and the like): look every
+  // few seconds, and the moment Keys comes back to the front, for changes made elsewhere.
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const revision = useRef<string | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    let busy = false;
+    const look = async () => {
+      if (busy || document.hidden) return;
+      busy = true;
+      try {
+        const next = await api.sync();
+        if (stopped) return;
+        setSync(next);
+        if (revision.current !== null && next.revision !== revision.current) {
+          await Promise.all([loadEntries(), loadCategories()]);
+          setDetailVersion((v) => v + 1);
+          refreshAudit();
+          refreshTrash();
+          toast('Updated with changes from your other device');
+        }
+        revision.current = next.revision;
+      } catch {
+        /* locked or offline: the lock screen or the next look handles it */
+      } finally {
+        busy = false;
+      }
+    };
+    void look();
+    const timer = window.setInterval(() => void look(), 8000);
+    const onFront = () => void look();
+    window.addEventListener('focus', onFront);
+    document.addEventListener('visibilitychange', onFront);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFront);
+      document.removeEventListener('visibilitychange', onFront);
+    };
+  }, [loadEntries, loadCategories, refreshAudit, refreshTrash, toast]);
 
   useEffect(() => {
     void loadEntries();
@@ -424,6 +465,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           idleMs={settings.autoLockMinutes * 60_000}
           auditCount={auditCount}
           trashCount={trashCount}
+          sync={sync}
         />
 
         <main className="workspace">
@@ -527,6 +569,14 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                 {view.kind === 'settings' && (
                   <SettingsView
                     categories={categories}
+                    sync={sync}
+                    onMerged={async () => {
+                      setSync(await api.sync().catch(() => sync));
+                      await Promise.all([loadEntries(), loadCategories()]);
+                      setDetailVersion((v) => v + 1);
+                      refreshAudit();
+                      refreshTrash();
+                    }}
                     connectBrowser={connectBrowser}
                     onConnectBrowserDone={() => setConnectBrowser(false)}
                     onCategoriesChanged={async () => {

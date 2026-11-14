@@ -38,7 +38,32 @@ export function normalizePath(raw: unknown): string {
 const NO_DB = 'NO_DATABASE';
 
 export class Storage {
-  private current: Store | null = null;
+  private currentStore: Store | null = null;
+  private readonly reloadListeners = new Set<() => void>();
+
+  /** The open file; every new one passes on "another device changed me" to the listeners. */
+  private get current(): Store | null {
+    return this.currentStore;
+  }
+  private set current(next: Store | null) {
+    this.currentStore = next;
+    if (next) next.onReload = () => this.reloadListeners.forEach((fn) => fn());
+  }
+
+  /** Runs after the open file was re-read because another device changed it. */
+  onReload(fn: () => void): void {
+    this.reloadListeners.add(fn);
+  }
+
+  /** Changes each time the data was re-read from another device (or the file was switched). */
+  get revision(): string {
+    return `${this.file}#${this.currentStore?.revision ?? 0}`;
+  }
+
+  /** Checks right now whether another device changed the file (for the app's periodic look). */
+  checkForChanges(): boolean {
+    return this.currentStore?.refresh() ?? false;
+  }
   private file: string;
   private error: string | null = null;
   private readonly pointer: string | null;

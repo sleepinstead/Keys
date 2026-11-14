@@ -21,10 +21,11 @@ if (production && !fs.existsSync(path.join(root, 'dist', 'index.html'))) {
   process.exit(1);
 }
 
-const { app, storage, sessions } = createApp({
+const { app, storage, sessions, presence } = createApp({
   allowedOrigins: origins,
   staticDir: production ? path.join(root, 'dist') : undefined,
   appUrl: production ? `http://localhost:${port}` : 'http://localhost:5173',
+  presence: true,
 });
 
 const server = app.listen(port, host, (err?: Error) => {
@@ -41,6 +42,7 @@ const server = app.listen(port, host, (err?: Error) => {
 
 function shutdown() {
   sessions.dispose(); // wipes the in-memory key
+  presence.stop(); // this computer no longer has the file open
   server.close(() => {
     storage.close();
     process.exit(0);

@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, MonitorSmartphone, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
 import { collapse, fade } from '../motion.ts';
 import { isShortCredential } from '../../shared/types.ts';
-import type { BrowserPairing, Category, CategoryColor, Credential, EntryType, ExportFormat, PinStatus, StorageInfo, VaultStatus } from '../../shared/types.ts';
+import type { BrowserPairing, Category, SyncConflict, SyncStatus, CategoryColor, Credential, EntryType, ExportFormat, PinStatus, StorageInfo, VaultStatus } from '../../shared/types.ts';
 import { isWeakPin } from '../../shared/generator.ts';
 import { CREDENTIAL_NAMES, choiceFromCredential, CredentialPicker, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
@@ -83,12 +83,17 @@ function SelectRow({
 
 export function SettingsView({
   categories,
+  sync,
+  onMerged,
   connectBrowser,
   onConnectBrowserDone,
   onCategoriesChanged,
   onImported,
 }: {
   categories: Category[];
+  /** Other computers using this database file, and conflict copies to merge. */
+  sync: SyncStatus | null;
+  onMerged: () => Promise<void>;
   /** Opens the "connect a browser" dialog (from the extension's link). */
   connectBrowser: boolean;
   onConnectBrowserDone: () => void;
@@ -126,6 +131,7 @@ export function SettingsView({
         </div>
       </Section>
       {vaultStatus && <StorageSection storage={vaultStatus.storage} credential={vaultStatus.credential} onMoved={refreshStatus} />}
+      {vaultStatus && !vaultStatus.storage.isDefault && <SharingSection sync={sync} onMerged={onMerged} />}
 
       <Section title="Icons" icon={<Shapes size={17} />} size="narrow" lede="Hidden kinds show as plain text rows.">
         <div className="group">
@@ -240,6 +246,75 @@ function formatSize(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** The same file on other computers: who else has it open, and conflict copies to merge. */
+function SharingSection({ sync, onMerged }: { sync: SyncStatus | null; onMerged: () => Promise<void> }) {
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function merge(c: SyncConflict) {
+    const ok = await confirm({
+      title: 'Merge this copy?',
+      body: `${c.name} has ${plural(c.changes, 'item')} that ${c.changes === 1 ? 'is' : 'are'} new or newer than here. ${c.changes === 1 ? 'It’s' : 'They’re'} merged in (the newest version of each item wins), then the copy is removed.`,
+      confirmLabel: 'Merge',
+    });
+    if (!ok) return;
+    setBusy(c.path);
+    try {
+      const { merged } = await api.mergeConflict(c.path);
+      toast(`Merged ${plural(merged, 'item')} from the other copy`);
+      await onMerged();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Section title="Your other devices" icon={<MonitorSmartphone size={17} />} size="narrow" lede="This file is shared through a synced folder. Keys picks up changes from your other computers on its own.">
+      <div className="group">
+        {sync?.devices.length ? (
+          sync.devices.map((d) => (
+            <div className="setting-row" key={`${d.name}${d.lastSeenAt}`}>
+              <div>
+                <div className="setting-label">
+                  <span className="sync-dot" aria-hidden="true" /> {d.name}
+                </div>
+                <div className="setting-desc">
+                  {d.platform ? `${d.platform} · ` : ''}open now, last seen {timeAgo(d.lastSeenAt)}
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="setting-row">
+            <div>
+              <div className="setting-label">No other computer has it open</div>
+              <div className="setting-desc">When one does, it shows here.</div>
+            </div>
+          </div>
+        )}
+        {sync?.conflicts.map((c) => (
+          <div className="setting-row" key={c.path}>
+            <div>
+              <div className="setting-label">
+                <TriangleAlert size={14} className="text-warn" aria-hidden="true" /> Conflicting copy
+              </div>
+              <div className="setting-desc">
+                {c.name}: {plural(c.changes, 'change')}, saved {timeAgo(c.modifiedAt)}
+              </div>
+            </div>
+            <Button size="sm" variant="outline" loading={busy === c.path} onClick={() => void merge(c)}>
+              Merge
+            </Button>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
 }
 
 /** Where the database file lives, and ways to connect, move or create one. */

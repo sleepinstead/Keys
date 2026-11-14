@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent, ReactNode } from 'react';
-import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2 } from 'lucide-react';
+import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { useSettings } from '../context.tsx';
-import type { Category, CategoryColor, EntrySummary, EntryType } from '../../shared/types.ts';
+import type { Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
 import { AppMark, ContextMenu, IconButton, Kbd, Tooltip, FolderIcon, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
@@ -89,6 +89,7 @@ export function Sidebar({
   idleMs,
   auditCount,
   trashCount,
+  sync,
 }: {
   /** Off-canvas on a narrow screen: kept out of the tab order and away from screen readers. */
   hidden?: boolean;
@@ -107,6 +108,8 @@ export function Sidebar({
   idleMs: number;
   auditCount: number | null;
   trashCount: number;
+  /** Other computers using this file, and conflict copies to merge. */
+  sync: SyncStatus | null;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -321,6 +324,19 @@ export function Sidebar({
       />
 
       <div className="sidebar-foot">
+        {sync && sync.conflicts.length > 0 && (
+          <button type="button" className="sync-note sync-note-warn" onClick={go({ kind: 'settings' })}>
+            <TriangleAlert size={14} aria-hidden="true" />
+            {sync.conflicts.length === 1 ? 'A conflicting copy to merge' : `${sync.conflicts.length} conflicting copies to merge`}
+          </button>
+        )}
+        {sync && sync.devices.length > 0 && (
+          <p className="sync-note" title={sync.devices.map((d) => d.name).join(', ')}>
+            <span className="sync-dot" aria-hidden="true" />
+            Also open on {sync.devices[0]!.name}
+            {sync.devices.length > 1 ? ` +${sync.devices.length - 1}` : ''}
+          </p>
+        )}
         <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} />
       </div>
     </nav>

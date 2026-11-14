@@ -14,6 +14,7 @@ import { HttpError } from './validate.ts';
 import { Vault } from './vault.ts';
 import { DB_FILE } from './db.ts';
 import { Storage } from './storage.ts';
+import { Presence } from './sharing.ts';
 
 export interface AppOptions {
   /** Only tests override this (with ':memory:'). */
@@ -25,6 +26,8 @@ export interface AppOptions {
   fetchIcon?: IconFetcher;
   /** Where the app's page is served, for the browser extension's "Open Keys" button. */
   appUrl?: string;
+  /** Leave "open on this computer" markers next to a database in a shared folder (off in tests). */
+  presence?: boolean;
 }
 
 export function createApp(opts: AppOptions) {
@@ -33,6 +36,27 @@ export function createApp(opts: AppOptions) {
   const vault = new Vault(storage);
   const sessions = new SessionManager(() => vault.getSettings().autoLockMinutes * 60_000);
   const quick = new QuickUnlock();
+
+  // Another computer may replace the whole vault (erase it, or connect a different one) in a shared
+  // folder. Edits made elsewhere are simply picked up, but a different vault means this session's
+  // key no longer fits: lock, so the person unlocks the vault that's actually there now.
+  let vaultId = storage.available ? vault.store.getMeta('created_at') : null;
+  storage.onReload(() => {
+    const now = vault.store.getMeta('created_at');
+    if (vaultId !== null && now !== vaultId) {
+      sessions.lock();
+      quick.disarm();
+    }
+    vaultId = now;
+  });
+  sessions.onLock(() => {
+    vaultId = storage.available ? vault.store.getMeta('created_at') : null;
+  });
+  const presence = new Presence(() => {
+    const where = storage.info();
+    return opts.presence && where.available && !where.isDefault ? where.path : null;
+  });
+  if (opts.presence) presence.start();
 
   const app = express();
   app.disable('x-powered-by');
@@ -44,7 +68,7 @@ export function createApp(opts: AppOptions) {
     '/api',
     apiGuard(new Set(opts.allowedOrigins)),
     browsers.manage,
-    createApi({ vault, storage, sessions, quick, fetchRange: opts.fetchRange, fetchIcon: opts.fetchIcon }),
+    createApi({ vault, storage, sessions, quick, presence, fetchRange: opts.fetchRange, fetchIcon: opts.fetchIcon }),
   );
 
   if (opts.staticDir && fs.existsSync(path.join(opts.staticDir, 'index.html'))) {
@@ -67,6 +91,10 @@ export function createApp(opts: AppOptions) {
       res.status(413).json({ error: 'Request is too large' });
     } else if (err && typeof err === 'object' && 'type' in err && err.type === 'entity.parse.failed') {
       res.status(400).json({ error: 'Malformed JSON' });
+    } else if (err && typeof err === 'object' && 'errcode' in err && (err.errcode === 8 || err.errcode === 1032)) {
+      // SQLITE_READONLY(_DBMOVED): the sync app replaced the file mid-save. Re-read it; the edit can be retried.
+      storage.checkForChanges();
+      res.status(409).json({ error: 'Your database just changed on another device. Try that again.', code: 'DB_CHANGED' });
     } else if (err && typeof err === 'object' && 'errcode' in err && (err.errcode === 5 || err.errcode === 6)) {
       // SQLITE_BUSY / SQLITE_LOCKED: another program held the file past the busy timeout.
       res.status(503).json({ error: 'The database is busy (another program is using it). Try again in a moment.', code: 'BUSY' });
@@ -87,5 +115,6 @@ export function createApp(opts: AppOptions) {
     vault,
     sessions,
     quick,
+    presence,
   };
 }

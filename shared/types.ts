@@ -170,6 +170,29 @@ export interface StorageInfo {
   canBrowse: boolean;
 }
 
+/** Another computer with the same database file open (through a synced folder). */
+export interface OtherDevice {
+  name: string;
+  platform: string;
+  lastSeenAt: number;
+}
+
+/** A copy of the database the sync app made when two computers saved at once. */
+export interface SyncConflict {
+  path: string;
+  name: string;
+  modifiedAt: number;
+  /** Items in it that are new or newer than here. */
+  changes: number;
+}
+
+/** What the app polls for: whether the data changed elsewhere, who else has it open, and conflicts. */
+export interface SyncStatus {
+  revision: string;
+  devices: OtherDevice[];
+  conflicts: SyncConflict[];
+}
+
 export interface VaultStatus {
   storage: StorageInfo;
   initialized: boolean;
