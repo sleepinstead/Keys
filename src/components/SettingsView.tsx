@@ -103,11 +103,23 @@ export function SettingsView({
   const { settings, updateSettings } = useSettings();
   const save = (patch: Parameters<typeof updateSettings>[0]) => void updateSettings(patch).catch(() => {});
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
+  const [browsers, setBrowsers] = useState<BrowserPairing[] | null>(null);
   const refreshStatus = () => api.status().then(setVaultStatus).catch(() => {});
+  // Everything the page shows is fetched first and drawn once. Tiles flow into columns, so a
+  // section appearing late would reshuffle the whole page while it fades in.
   useEffect(() => {
-    void refreshStatus();
+    let live = true;
+    void Promise.all([api.status().catch(() => null), api.browsers().catch(() => [])]).then(([st, list]) => {
+      if (!live) return;
+      setVaultStatus(st);
+      setBrowsers(list);
+    });
+    return () => {
+      live = false;
+    };
   }, []);
   const credential: Credential = vaultStatus?.credential ?? { type: 'password' };
+  if (!browsers) return null;
 
   return (
     <div className="page page-wide">
@@ -224,7 +236,7 @@ export function SettingsView({
         </div>
       </Section>
 
-      <BrowserSection connect={connectBrowser} onConnectDone={onConnectBrowserDone} />
+      <BrowserSection initial={browsers} connect={connectBrowser} onConnectDone={onConnectBrowserDone} />
       <BackupSection credential={credential} onImported={onImported} />
       <CategoriesSection categories={categories} onChanged={onCategoriesChanged} />
       </div>
@@ -1057,8 +1069,8 @@ const EXPORT_FORMATS: { value: ExportFormat; label: string; description: string;
 
 /** One tile for backups: export and import, each opening its own dialog. */
 /** Browsers whose Keys extension may fill passwords, and connecting a new one. */
-function BrowserSection({ connect, onConnectDone }: { connect: boolean; onConnectDone: () => void }) {
-  const [list, setList] = useState<BrowserPairing[] | null>(null);
+function BrowserSection({ initial, connect, onConnectDone }: { initial: BrowserPairing[]; connect: boolean; onConnectDone: () => void }) {
+  const [list, setList] = useState<BrowserPairing[]>(initial);
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1066,10 +1078,7 @@ function BrowserSection({ connect, onConnectDone }: { connect: boolean; onConnec
   const confirm = useConfirm();
   const toast = useToast();
 
-  const load = () => api.browsers().then(setList, () => setList([]));
-  useEffect(() => {
-    void load();
-  }, []);
+  const load = () => api.browsers().then(setList, () => {});
   useEffect(() => {
     if (connect) setOpen(true);
   }, [connect]);

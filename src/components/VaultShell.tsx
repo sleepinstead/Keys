@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ComponentType } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Menu as MenuIcon, Search } from 'lucide-react';
@@ -21,10 +22,24 @@ import { Sidebar, viewKey } from './Sidebar.tsx';
 import type { Filter, View } from './Sidebar.tsx';
 import { AppMark, EmptyState, IconButton, Kbd } from './ui.tsx';
 
-// Pages opened now and then load on first visit, keeping the startup bundle small.
-const AuditView = lazy(() => import('./AuditView.tsx').then((m) => ({ default: m.AuditView })));
-const SettingsView = lazy(() => import('./SettingsView.tsx').then((m) => ({ default: m.SettingsView })));
-const TrashView = lazy(() => import('./TrashView.tsx').then((m) => ({ default: m.TrashView })));
+/**
+ * A page that loads separately (keeping startup small) but is fetched in the background soon after
+ * unlock. Once its code is here it renders straight away, so opening it never fades in on a blank.
+ */
+function preloadable<P extends object>(load: () => Promise<ComponentType<P>>) {
+  let ready: ComponentType<P> | null = null;
+  const fetch = () => load().then((c) => (ready = c));
+  const Lazy = lazy(() => fetch().then((c) => ({ default: c })));
+  const Page = (props: P) => {
+    const Ready = ready;
+    return Ready ? <Ready {...props} /> : <Lazy {...props} />;
+  };
+  Page.preload = () => void fetch().catch(() => {});
+  return Page;
+}
+const AuditView = preloadable(() => import('./AuditView.tsx').then((m) => m.AuditView));
+const SettingsView = preloadable(() => import('./SettingsView.tsx').then((m) => m.SettingsView));
+const TrashView = preloadable(() => import('./TrashView.tsx').then((m) => m.TrashView));
 
 const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'] as const;
 const PING_EVERY_MS = 20_000;
@@ -183,6 +198,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
   // few seconds, and the moment Keys comes back to the front, for changes made elsewhere.
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const revision = useRef<string | null>(null);
+  const lastSync = useRef('');
   useEffect(() => {
     let stopped = false;
     let busy = false;
@@ -192,7 +208,13 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
       try {
         const next = await api.sync();
         if (stopped) return;
-        setSync(next);
+        // Only when something actually changed: a new object every few seconds would redraw the whole app.
+        // (Device "last seen" times are rounded to the minute so a heartbeat alone doesn't count.)
+        const key = JSON.stringify({ ...next, devices: next.devices.map((d) => [d.name, Math.round(d.lastSeenAt / 60_000)]) });
+        if (key !== lastSync.current) {
+          lastSync.current = key;
+          setSync(next);
+        }
         if (revision.current !== null && next.revision !== revision.current) {
           await Promise.all([loadEntries(), loadCategories()]);
           setDetailVersion((v) => v + 1);
@@ -219,6 +241,12 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
       document.removeEventListener('visibilitychange', onFront);
     };
   }, [loadEntries, loadCategories, refreshAudit, refreshTrash, toast]);
+
+  useEffect(() => {
+    // Once the vault is showing, fetch the other pages' code quietly so they open instantly.
+    const t = window.setTimeout(() => [AuditView, SettingsView, TrashView].forEach((p) => p.preload()), 1500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     void loadEntries();
@@ -559,6 +587,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                 )}
                 {view.kind === 'trash' && (
                   <TrashView
+                    credential={status.credential}
                     onChanged={() => {
                       refreshTrash();
                       void loadEntries();

@@ -5000,21 +5000,6 @@ svg.dial-layer {
 
 /* ================================================== interaction motion */
 
-/* Item rows fade in when a list (re)appears. */
-.entry-row {
-  animation: row-in 0.22s var(--ease) backwards;
-}
-@keyframes row-in {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .entry-row {
-    animation: none;
-  }
-}
 
 /* App logo image. */
 .app-mark img {

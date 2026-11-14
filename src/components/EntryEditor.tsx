@@ -347,7 +347,8 @@ function EditorForm({
               className="input input-lg"
               required
               maxLength={200}
-              autoFocus
+              // Focused by the dialog one frame after it opens, so the dialog paints first (no hitch).
+              data-autofocus
               autoComplete="off"
               placeholder={form.type === 'login' ? 'e.g. GitHub' : form.type === 'apiKey' ? 'e.g. Stripe live key' : form.type === 'note' ? 'e.g. Wi-Fi details' : 'e.g. Google account'}
               value={form.title}

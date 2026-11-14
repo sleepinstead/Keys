@@ -147,11 +147,13 @@ function TrashSummary({ items }: { items: TrashedEntry[] }) {
   );
 }
 
-export function TrashView({ onChanged }: { onChanged: () => void }) {
+export function TrashView({ onChanged, credential: initialCredential }: { onChanged: () => void; credential: Credential }) {
+  // Known up front (no wording change after load); refreshed in case it was changed in Settings.
+  const [credential, setCredential] = useState<Credential>(initialCredential);
   const { settings } = useSettings();
   const toast = useToast();
   const [items, setItems] = useState<TrashedEntry[] | null>(null);
-  const [credential, setCredential] = useState<Credential>({ type: 'password' });
+  const [slow, setSlow] = useState(false);
   const [purging, setPurging] = useState<TrashedEntry[] | 'all' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,6 +171,9 @@ export function TrashView({ onChanged }: { onChanged: () => void }) {
   useEffect(() => {
     void load();
     void api.status().then((s) => setCredential(s.credential), () => {});
+    // A spinner only if loading is actually slow; otherwise the page simply appears.
+    const t = window.setTimeout(() => setSlow(true), 300);
+    return () => window.clearTimeout(t);
   }, []);
 
   async function restore(list: TrashedEntry[]) {
@@ -186,7 +191,7 @@ export function TrashView({ onChanged }: { onChanged: () => void }) {
   }
 
   if (!items) {
-    return <div className="page page-center">{error ? <p className="form-error">{error}</p> : <Spinner size={20} />}</div>;
+    return <div className="page page-center">{error ? <p className="form-error">{error}</p> : slow ? <Spinner size={20} /> : null}</div>;
   }
 
   return (

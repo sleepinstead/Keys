@@ -640,7 +640,7 @@ export function Dialog({
     const raf = requestAnimationFrame(() => {
       const el = panel.current;
       if (!el || el.contains(document.activeElement)) return;
-      (el.querySelector<HTMLElement>('[data-autofocus], [autofocus]') ?? el.querySelector<HTMLElement>('input, textarea, select, button:not([data-dialog-close])') ?? el).focus();
+      (el.querySelector<HTMLElement>('[data-autofocus], [autofocus]') ?? el.querySelector<HTMLElement>('input, textarea, select, button:not([data-dialog-close])') ?? el).focus({ preventScroll: true });
     });
     return () => {
       cancelAnimationFrame(raf);
