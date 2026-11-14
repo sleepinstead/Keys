@@ -238,14 +238,15 @@ function lockScreen() {
   const form =
     kind.type === 'pattern'
       ? patternPad()
-      : (() => {
+      : kind.type === 'pin'
+        ? pinCells(kind.length)
+        : (() => {
           const input = h('input', {
             id: 'credential',
             class: 'input',
             type: 'password',
             autocomplete: 'current-password',
-            placeholder: kind.type === 'pin' ? `${kind.length}-digit PIN` : kind.type === 'passphrase' ? 'Passphrase' : 'Master password',
-            inputMode: kind.type === 'pin' ? 'numeric' : undefined,
+            placeholder: kind.type === 'passphrase' ? 'Passphrase' : 'Master password',
             disabled: busy,
           });
           return h(
@@ -265,6 +266,43 @@ function lockScreen() {
     error && h('p', { class: 'error', role: 'alert' }, error),
     h('button', { class: 'link', onclick: forgetFile }, 'Use a different file'),
   );
+}
+
+/** The desktop app's PIN boxes: one hidden numeric field under a row of cells; unlocks when full. */
+function pinCells(length: number) {
+  const cells = Array.from({ length }, (_, i) => h('span', { class: 'otp-cell', style: `--i:${i}`, 'aria-hidden': 'true' }));
+  const paint = (value: string, focused: boolean) =>
+    cells.forEach((c, i) => {
+      const filled = i < value.length;
+      c.toggleAttribute('data-filled', filled);
+      c.toggleAttribute('data-current', focused && i === Math.min(value.length, length - 1) && (!filled || value.length === length));
+      if (filled !== !!c.firstChild) c.replaceChildren(...(filled ? [h('span', { class: 'otp-dot' })] : []));
+    });
+  const input = h('input', {
+    id: 'credential',
+    class: 'otp-input',
+    type: 'password',
+    inputMode: 'numeric',
+    pattern: '[0-9]*',
+    autocomplete: 'off',
+    maxLength: length,
+    disabled: busy,
+    'aria-label': `${length}-digit PIN`,
+    oninput: () => {
+      input.value = input.value.replace(/\D/g, '').slice(0, length);
+      paint(input.value, true);
+      if (input.value.length === length) void tryUnlock(input.value);
+    },
+    onfocus: () => paint(input.value, true),
+    onblur: () => paint(input.value, false),
+  });
+  const row = h('div', { class: 'otp', 'data-length': length, 'data-invalid': error ? '' : undefined, 'data-busy': busy ? '' : undefined, onclick: () => input.focus() }, input);
+  cells.forEach((c, i) => {
+    if (length === 6 && i === 3) row.append(h('span', { class: 'otp-sep', 'aria-hidden': 'true' }));
+    row.append(c);
+  });
+  paint(busy ? '•'.repeat(length) : '', false);
+  return h('div', { class: 'stack' }, h('p', { class: 'muted pin-hint' }, busy ? 'Unlocking…' : `Enter your ${length}-digit PIN`), row);
 }
 
 function patternPad() {

@@ -5,6 +5,7 @@ export default defineConfig({
   root: 'phone',
   base: './',
   envDir: '..',
+  cacheDir: '../node_modules/.vite-phone', // its own: sharing the desktop dev server's cache breaks it
   server: { host: 'localhost', port: 5180, strictPort: true },
   build: { outDir: '../dist-phone', emptyOutDir: true, sourcemap: false },
 });
