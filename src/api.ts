@@ -101,6 +101,7 @@ export const api = {
   retryStorage: () => request<VaultStatus>('POST', '/storage/retry'),
   sync: () => request<SyncStatus>('GET', '/sync'),
   mergeConflict: (path: string) => request<{ merged: number }>('POST', '/sync/merge', { path }),
+  installUpdate: () => request<{ ok: true }>('POST', '/update/install'),
   browseStorage: (mode: 'open' | 'save') => request<{ path: string | null }>('POST', '/storage/browse', { mode }),
   storageTemplate: () => request<{ filename: string; data: string }>('GET', '/storage/template'),
   setup: (password: string, type: CredentialType = 'password') => request<VaultStatus>('POST', '/setup', { password, type }),

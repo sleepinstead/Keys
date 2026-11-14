@@ -191,6 +191,14 @@ export interface SyncStatus {
   revision: string;
   devices: OtherDevice[];
   conflicts: SyncConflict[];
+  /** A newer Keys for Mac, ready to install (only the Mac app reports this). */
+  update?: AppUpdate | null;
+}
+
+export interface AppUpdate {
+  version: string;
+  notes: string;
+  state: 'available' | 'installing' | 'failed';
 }
 
 export interface VaultStatus {

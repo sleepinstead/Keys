@@ -48,6 +48,10 @@ pub struct App {
     origins: Vec<String>,
     /// Where the app is, for the extension's "Open Keys" button.
     app_url: String,
+    /// A newer version the Mac app found ({version, notes, state}); the sidebar shows it.
+    update: Mutex<Option<Value>>,
+    /// Starts installing that update (set by the Mac app; absent in the plain server).
+    install: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 pub type Shared = Arc<App>;
@@ -66,11 +70,27 @@ impl App {
         };
         inner.vault_id = inner.current_vault_id();
         let app_url = format!("http://localhost:{port}");
-        Arc::new(App { inner: Mutex::new(inner), origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")], app_url })
+        Arc::new(App {
+            inner: Mutex::new(inner),
+            origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")],
+            app_url,
+            update: Mutex::new(None),
+            install: std::sync::OnceLock::new(),
+        })
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Tells the app about an update (or clears it). Shown in the sidebar, above Lock.
+    pub fn set_update(&self, info: Option<Value>) {
+        *self.update.lock().unwrap_or_else(|p| p.into_inner()) = info;
+    }
+
+    /// What "Update & restart" in the sidebar runs.
+    pub fn on_install(&self, run: impl Fn() + Send + Sync + 'static) {
+        let _ = self.install.set(Box::new(run));
     }
 
     /// Locks after the idle time; the app calls this every second.
@@ -498,13 +518,25 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             let db = g.shared_file();
             let devices = g.presence.as_ref().map(|p| p.others(db.as_deref())).unwrap_or_default();
             let conflicts = sharing::find_conflicts(g.store()?);
-            Ok(json!({ "revision": g.storage.revision(), "devices": devices, "conflicts": conflicts }))
+            let update = app.update.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            Ok(json!({ "revision": g.storage.revision(), "devices": devices, "conflicts": conflicts, "update": update }))
         }),
         ("POST", ["sync", "merge"]) => with!(|g| {
             g.key_for(token, true)?;
             let file = require_string(body.get("path"), "Copy", 4096)?;
             sharing::merge_conflict(g.store()?, &file).map_err(|e| HttpError::new(409, e.message))
         }),
+
+        // ------------------------------------------------------------ app updates (Mac app only)
+        ("POST", ["update", "install"]) => {
+            app.lock().key_for(token, true)?;
+            let run = app.install.get().ok_or_else(|| HttpError::new(404, "Updates come through the Mac app"))?;
+            if app.update.lock().unwrap_or_else(|p| p.into_inner()).is_none() {
+                return Err(HttpError::new(409, "There’s no update to install"));
+            }
+            run();
+            ok(json!({ "ok": true }))
+        }
 
         // ------------------------------------------------------------ tools
         ("POST", ["tools", "strength"]) => {

@@ -15,6 +15,12 @@ async fn main() {
         }
     };
     let app = keys_core::api::App::new(storage, port);
+    // Testing the sidebar's update card without a real release: KEYS_FAKE_UPDATE=0.3.0.
+    if let Ok(version) = std::env::var("KEYS_FAKE_UPDATE") {
+        app.set_update(Some(serde_json::json!({ "version": version, "notes": "Test update", "state": "available" })));
+        let me = app.clone();
+        app.on_install(move || me.set_update(Some(serde_json::json!({ "version": "test", "notes": "", "state": "installing" }))));
+    }
     let cleanup = app.clone();
     tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;

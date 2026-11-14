@@ -31,3 +31,4 @@ dist-phone
 # Rust / Tauri build output
 desktop/target
 desktop/app/gen
+dist-mac

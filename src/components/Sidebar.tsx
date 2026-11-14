@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent, ReactNode } from 'react';
-import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowDownToLine, FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
+import { api } from '../api.ts';
 import { useSettings } from '../context.tsx';
-import type { Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
+import type { AppUpdate, Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
 import { AppMark, ContextMenu, IconButton, Kbd, Tooltip, FolderIcon, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
@@ -337,9 +338,45 @@ export function Sidebar({
             {sync.devices.length > 1 ? ` +${sync.devices.length - 1}` : ''}
           </p>
         )}
+        {sync?.update && <UpdateCard update={sync.update} />}
         <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} />
       </div>
     </nav>
+  );
+}
+
+/** Keys for Mac found a newer version: one click downloads it, checks its signature, and restarts. */
+function UpdateCard({ update }: { update: AppUpdate }) {
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState(false);
+  useEffect(() => setError(update.state === 'failed'), [update.state]);
+  const busy = starting || update.state === 'installing';
+  const install = async () => {
+    setStarting(true);
+    setError(false);
+    try {
+      await api.installUpdate();
+    } catch {
+      setStarting(false);
+      setError(true);
+    }
+  };
+  return (
+    <div className="update-card" title={update.notes || undefined}>
+      <span className="update-icon" aria-hidden="true">
+        <ArrowDownToLine size={15} />
+      </span>
+      <span className="update-text">
+        <strong>{busy ? 'Updating…' : error ? 'Update failed' : 'New version'}</strong>
+        <small>{busy ? 'Restarts when done' : `Keys ${update.version}`}</small>
+      </span>
+      {!busy && (
+        <button type="button" className="update-btn" onClick={() => void install()}>
+          {error ? 'Try again' : 'Update'}
+        </button>
+      )}
+      {busy && <span className="update-spinner" aria-label="Updating" />}
+    </div>
   );
 }
 
