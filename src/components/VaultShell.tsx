@@ -275,6 +275,16 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
     }
   }, [settings.categoriesEnabled, view]);
 
+  // Folding the sidebar happens at once; the choice is saved in the background.
+  const [collapsed, setCollapsed] = useState(settings.sidebarCollapsed);
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
+  const toggleSidebar = useCallback(() => {
+    const next = !collapsedRef.current;
+    setCollapsed(next);
+    api.updateSettings({ sidebarCollapsed: next }).catch(() => undefined);
+  }, []);
+
   const updateSettings = useCallback(
     async (patch: Partial<Settings>) => {
       // Flipped inside the transition, before saving, so the toggle's pill can glide between snapshots.
@@ -445,6 +455,12 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         setPaletteOpen((o) => !o);
         return;
       }
+      // ⌘\ : fold or unfold the sidebar.
+      if (mod && e.key === '\\') {
+        e.preventDefault();
+        toggleSidebar();
+        return;
+      }
       // ⌘, : Settings, as in every Mac app.
       if (mod && e.key === ',') {
         if (document.querySelector('.dialog-layer')) return;
@@ -487,7 +503,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
 
   return (
     <SettingsProvider value={{ settings, updateSettings }}>
-      <div className="shell" data-nav-open={navOpen || undefined} data-detail={showingDetail || undefined}>
+      <div className="shell" data-nav-open={navOpen || undefined} data-detail={showingDetail || undefined} data-sidebar={collapsed && !narrow ? 'collapsed' : undefined}>
         <header className="topbar">
           <IconButton label="Menu" onClick={() => setNavOpen(true)} aria-expanded={navOpen} aria-controls="main-nav">
             <MenuIcon size={19} />
@@ -519,6 +535,8 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           auditCount={auditCount}
           trashCount={trashCount}
           sync={sync}
+          collapsed={collapsed && !narrow}
+          onToggle={toggleSidebar}
         />
 
         <main className="workspace">

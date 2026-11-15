@@ -168,6 +168,7 @@ export function sanitizeSettings(raw: unknown, current: Settings = DEFAULT_SETTI
       : current.appearance,
     hideIcons: hideIcons(o, current.hideIcons),
     categoriesEnabled: has('categoriesEnabled') ? Boolean(o.categoriesEnabled) : (current.categoriesEnabled ?? true),
+    sidebarCollapsed: has('sidebarCollapsed') ? Boolean(o.sidebarCollapsed) : (current.sidebarCollapsed ?? false),
   };
 }
 

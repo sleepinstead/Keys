@@ -157,7 +157,8 @@ pub fn default_settings() -> Value {
         "generator": default_generator(),
         "appearance": "system",
         "hideIcons": { "login": false, "note": true, "apiKey": true, "recovery": true },
-        "categoriesEnabled": true
+        "categoriesEnabled": true,
+        "sidebarCollapsed": false
     })
 }
 
@@ -242,6 +243,7 @@ pub fn sanitize_settings(raw: &Value, current: &Value) -> Value {
         "appearance": o.get("appearance").and_then(Value::as_str).filter(|a| ["system", "light", "dark"].contains(a)).map(Value::from).unwrap_or_else(|| cur("appearance")),
         "hideIcons": hide,
         "categoriesEnabled": if o.contains_key("categoriesEnabled") { truthy(o.get("categoriesEnabled")).into() } else { current.get("categoriesEnabled").cloned().unwrap_or(Value::Bool(true)) },
+        "sidebarCollapsed": if o.contains_key("sidebarCollapsed") { truthy(o.get("sidebarCollapsed")).into() } else { current.get("sidebarCollapsed").cloned().unwrap_or(Value::Bool(false)) },
     })
 }
 

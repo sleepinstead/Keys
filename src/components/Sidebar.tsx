@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent, ReactNode } from 'react';
-import { ArrowDownToLine, FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowDownToLine, FileKey2, PanelLeftClose, PanelLeftOpen, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { api } from '../api.ts';
 import { useSettings } from '../context.tsx';
 import type { AppUpdate, Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
@@ -53,11 +53,13 @@ function NavItem({
   onContextMenu?: (e: MouseEvent<HTMLButtonElement>) => void;
   menuOpen?: boolean;
 }) {
+  const collapsed = useContext(Collapsed);
   const button = (
       <button
         type="button"
         className="nav-item"
         aria-current={active ? 'page' : undefined}
+        aria-label={collapsed ? label : undefined}
         data-menu-open={menuOpen || undefined}
         onClick={onClick}
         onContextMenu={onContextMenu}
@@ -71,8 +73,22 @@ function NavItem({
         )}
       </button>
   );
-  return <li>{button}</li>;
+  // Folded to icons: the name (and count) shows beside the icon on hover.
+  return (
+    <li>
+      {collapsed ? (
+        <Tooltip content={count ? `${label} · ${count}` : label} side="right">
+          {button}
+        </Tooltip>
+      ) : (
+        button
+      )}
+    </li>
+  );
 }
+
+/** Whether the sidebar is folded down to a rail of icons. */
+const Collapsed = createContext(false);
 
 export function Sidebar({
   hidden,
@@ -91,6 +107,8 @@ export function Sidebar({
   auditCount,
   trashCount,
   sync,
+  collapsed,
+  onToggle,
 }: {
   /** Off-canvas on a narrow screen: kept out of the tab order and away from screen readers. */
   hidden?: boolean;
@@ -111,6 +129,8 @@ export function Sidebar({
   trashCount: number;
   /** Other computers using this file, and conflict copies to merge. */
   sync: SyncStatus | null;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -177,18 +197,26 @@ export function Sidebar({
   }
 
   const search = (
-    <button type="button" className="search-trigger" onClick={onSearch}>
-      <Search size={15} aria-hidden="true" />
-      <span>Search</span>
-      <Kbd>{`${modKey}K`}</Kbd>
-    </button>
+    <Tooltip content="Search" shortcut={`${modKey}K`} side="right" disabled={!collapsed}>
+      <button type="button" className="search-trigger" onClick={onSearch} aria-label="Search">
+        <Search size={15} aria-hidden="true" />
+        <span className="search-label">Search</span>
+        <Kbd>{`${modKey}K`}</Kbd>
+      </button>
+    </Tooltip>
   );
 
   return (
+    <Collapsed.Provider value={collapsed}>
     <nav className="sidebar" id="main-nav" aria-label="Main" inert={hidden || undefined}>
       <div className="brand">
-        <AppMark size="sm" />
-        <span className="wordmark">Keys</span>
+        <span className="brand-mark">
+          <AppMark size="sm" />
+          <span className="wordmark">Keys</span>
+        </span>
+        <IconButton className="sidebar-toggle" label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} shortcut={`${modKey}\\`} tooltipSide={collapsed ? 'right' : 'bottom'} onClick={onToggle} aria-expanded={!collapsed} aria-controls="main-nav">
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </IconButton>
       </div>
 
       {search}
@@ -338,15 +366,16 @@ export function Sidebar({
             {sync.devices.length > 1 ? ` +${sync.devices.length - 1}` : ''}
           </p>
         )}
-        {sync?.update && <UpdateCard update={sync.update} />}
-        <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} />
+        {sync?.update && <UpdateCard update={sync.update} collapsed={collapsed} />}
+        <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} collapsed={collapsed} />
       </div>
     </nav>
+    </Collapsed.Provider>
   );
 }
 
 /** Keys for Mac found a newer version: one click downloads it, checks its signature, and restarts. */
-function UpdateCard({ update }: { update: AppUpdate }) {
+function UpdateCard({ update, collapsed }: { update: AppUpdate; collapsed: boolean }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(false);
   // The app reports progress: a failed install ends "Updating…" and offers Try again.
@@ -365,6 +394,16 @@ function UpdateCard({ update }: { update: AppUpdate }) {
       setError(true);
     }
   };
+  if (collapsed) {
+    // Folded: just the download button, its state in the tooltip.
+    return (
+      <Tooltip content={busy ? 'Updating Keys…' : error ? 'Update didn’t install · Try again' : `Update to Keys ${update.version}`} side="right">
+        <button type="button" className="update-rail" onClick={() => void install()} disabled={busy} aria-label={busy ? 'Updating Keys' : `Update to Keys ${update.version}`}>
+          {busy ? <span className="update-spinner" aria-hidden="true" /> : <ArrowDownToLine size={16} />}
+        </button>
+      </Tooltip>
+    );
+  }
   return (
     <div className="update-card" title={update.notes || undefined}>
       <span className="update-icon" aria-hidden="true">
@@ -385,7 +424,7 @@ function UpdateCard({ update }: { update: AppUpdate }) {
 }
 
 /** Icon-only lock button. The tooltip says when the vault will lock itself; the icon turns red in the last minute. */
-function LockButton({ onLock, expiresAt, idleMs }: { onLock: () => void; expiresAt: number | null; idleMs: number }) {
+function LockButton({ onLock, expiresAt, idleMs, collapsed }: { onLock: () => void; expiresAt: number | null; idleMs: number; collapsed: boolean }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
@@ -405,10 +444,11 @@ function LockButton({ onLock, expiresAt, idleMs }: { onLock: () => void; expires
         </>
       }
       shortcut={`${modKey}⇧L`}
+      side={collapsed ? 'right' : 'top'}
     >
       <button type="button" className={`btn btn-outline lock-btn${soon ? ' is-soon' : ''}`} onClick={onLock} aria-label={`Lock now. ${note}`}>
         <Lock size={16} />
-        Lock
+        <span className="lock-label">Lock</span>
       </button>
     </Tooltip>
   );

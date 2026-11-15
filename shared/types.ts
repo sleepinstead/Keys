@@ -141,6 +141,8 @@ export interface Settings {
   hideIcons: Record<EntryType, boolean>;
   /** Whether categories are enabled in the vault. */
   categoriesEnabled: boolean;
+  /** The sidebar is folded down to a rail of icons. */
+  sidebarCollapsed: boolean;
 }
 
 export type Appearance = 'system' | 'light' | 'dark';
@@ -155,6 +157,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appearance: 'system',
   hideIcons: { login: false, note: true, apiKey: true, recovery: true },
   categoriesEnabled: true,
+  sidebarCollapsed: false,
 };
 
 /** Where the SQLite database lives. Not secret: the lock screen shows it. */

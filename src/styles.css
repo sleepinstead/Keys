@@ -6155,3 +6155,197 @@ button.sync-note {
 .entry-list.is-virtual > li.list-letter {
   height: 31px;
 }
+
+/* ------------------------------------------------------- folding sidebar */
+/* One width animation on the grid; labels fade out at once when folding and back in once there's
+   room when unfolding. Icons keep their exact spot throughout, so nothing jumps. */
+.brand {
+  min-height: 40px;
+}
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+}
+.sidebar-toggle {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-3);
+}
+.search-trigger {
+  overflow: hidden;
+}
+.lock-label {
+  display: inline-block;
+  max-width: 4em;
+  overflow: hidden;
+}
+
+@media (min-width: 861px) {
+  .shell {
+    transition: grid-template-columns 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .sidebar {
+    overflow: hidden;
+  }
+  .shell[data-sidebar='collapsed'] {
+    --sidebar-w: 60px;
+  }
+
+  /* Text that goes away: quick fade out, then back in with a short delay. */
+  .brand-mark,
+  .wordmark,
+  .nav-label,
+  .nav-count,
+  .search-label,
+  .search-trigger .kbd,
+  .lock-label {
+    transition:
+      opacity 0.16s ease 0.08s,
+      max-width 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .shell[data-sidebar='collapsed'] :is(.brand-mark, .wordmark, .nav-label, .nav-count, .search-label, .search-trigger .kbd, .lock-label) {
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.08s ease,
+      max-width 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .shell[data-sidebar='collapsed'] .brand-mark,
+  .shell[data-sidebar='collapsed'] .lock-label {
+    max-width: 0;
+  }
+
+  /* Icons centred in the 40px rail (60px less the sidebar's padding). */
+  .brand,
+  .nav-item,
+  .search-trigger,
+  .lock-btn {
+    transition-property: padding, gap, background-color, color, border-color;
+    transition-duration: 0.24s, 0.24s, 0.12s, 0.12s, 0.12s;
+    transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .shell[data-sidebar='collapsed'] .brand {
+    padding: 2px 4px;
+  }
+  .shell[data-sidebar='collapsed'] .nav-item {
+    padding-left: 11px;
+    padding-right: 11px;
+  }
+  .shell[data-sidebar='collapsed'] .search-trigger {
+    padding-left: 11.5px;
+  }
+  .shell[data-sidebar='collapsed'] .lock-btn {
+    gap: 0;
+    padding: 0;
+  }
+
+  /* Section names fold into thin dividers between the icon groups. */
+  .nav-heading {
+    height: 16px;
+    overflow: hidden;
+    white-space: nowrap;
+    transition:
+      height 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+      margin 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+      color 0.12s ease 0.08s,
+      background-color 0.12s;
+  }
+  .shell[data-sidebar='collapsed'] .nav-heading {
+    height: 1px;
+    margin: 12px 10px;
+    background: var(--border);
+    color: transparent;
+    transition:
+      height 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+      margin 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+      color 0.06s ease,
+      background-color 0.12s ease 0.1s;
+  }
+  .shell[data-sidebar='collapsed'] .nav-heading-row {
+    padding-right: 0;
+  }
+  .shell[data-sidebar='collapsed'] .nav-heading-row .nav-heading {
+    flex: 1;
+  }
+  .shell[data-sidebar='collapsed'] .nav-heading-row .tt-anchor,
+  .shell[data-sidebar='collapsed'] .nav-add,
+  .shell[data-sidebar='collapsed'] .sync-note {
+    display: none;
+  }
+}
+
+/* The folded sidebar's update button. */
+.update-rail {
+  display: grid;
+  place-items: center;
+  flex: 1 0 100%;
+  height: 36px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--good) 12%, var(--bg));
+  color: var(--good-text);
+  cursor: pointer;
+}
+.update-rail:disabled {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell,
+  .shell * {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+}
+
+/* Tooltip wrappers mustn't change the sidebar's layout. */
+.sidebar > .tt-anchor {
+  display: flex;
+}
+.sidebar > .tt-anchor > .search-trigger {
+  flex: 1;
+  min-width: 0;
+}
+.brand > .tt-anchor {
+  margin-left: auto;
+  flex: none;
+}
+@media (min-width: 861px) {
+  .brand {
+    transition-property: padding, gap;
+  }
+  .shell[data-sidebar='collapsed'] .brand {
+    gap: 0;
+  }
+  .nav-scroll {
+    transition: margin 0.24s cubic-bezier(0.32, 0.72, 0, 1), padding 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  /* Rail items stay inside the rail (no overhang under its edge). */
+  .shell[data-sidebar='collapsed'] .nav-scroll {
+    margin: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .shell[data-sidebar='collapsed'] .nav-item {
+    padding-left: 11px;
+    padding-right: 11px;
+  }
+}
+/* Rows are as wide as the sidebar, never as wide as their longest label. */
+.nav-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* In the rail each row's tooltip wrapper fills the row, so the row stays rail-wide. */
+.nav-list .tt-anchor {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+.nav-list .tt-anchor > .nav-item {
+  min-width: 0;
+}
