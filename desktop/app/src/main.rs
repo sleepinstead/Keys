@@ -191,7 +191,8 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("Keys couldn’t start")
         .run(move |app, event| match event {
-            // Clicking the Dock icon brings the window back.
+            // Clicking the Dock icon brings the window back (on Windows, the tray icon does).
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => show_main(app),
             // On quit (and before an update restarts Keys): lock, and remove this computer's
             // "open" marker beside a shared database.

@@ -164,6 +164,7 @@ pub async fn check(app: AppHandle, asked: Asked) -> Value {
         return json!({ "state": "installing" });
     }
     // Never hang: a stalled network (some block GitHub's download server) fails after a while instead.
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))] // changed only in development builds
     let mut builder = app.updater_builder().timeout(Duration::from_secs(120)).configure_client(|c| c.connect_timeout(Duration::from_secs(10)).read_timeout(Duration::from_secs(30)));
     // Development only: point at a local test feed.
     #[cfg(debug_assertions)]
