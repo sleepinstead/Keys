@@ -348,6 +348,16 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(windows)]
+    fn normalizes_windows_paths() {
+        assert_eq!(normalize_path(Some(r#""C:\Users\x\..\y\Keys.sqlite""#)).unwrap(), PathBuf::from(r"C:\Users\y\Keys.sqlite"));
+        assert_eq!(normalize_path(Some("file:///C:/Users/x/My%20Drive/Keys.sqlite")).unwrap(), PathBuf::from(r"C:\Users\x\My Drive\Keys.sqlite"));
+        assert!(normalize_path(Some(r"relative\path")).is_err());
+        assert!(normalize_path(None).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn normalizes_paths_like_node() {
         assert_eq!(normalize_path(Some("'/a/b/../c.sqlite'")).unwrap(), PathBuf::from("/a/c.sqlite"));
         assert_eq!(normalize_path(Some("file:///Users/x/My%20Drive/Keys.sqlite")).unwrap(), PathBuf::from("/Users/x/My Drive/Keys.sqlite"));
