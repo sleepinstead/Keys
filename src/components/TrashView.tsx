@@ -7,7 +7,7 @@ import { encodePattern } from '../../shared/credential.ts';
 import type { Credential, TrashedEntry } from '../../shared/types.ts';
 import { plural, timeAgo, TYPE_LABELS } from '../util.ts';
 import { CREDENTIAL_NAMES, PatternInput } from './credential.tsx';
-import { Button, ContextMenu, Dialog, EmptyState, IconButton, Monogram, OtpInput, Spinner, useContextMenu } from './ui.tsx';
+import { Button, ContextMenu, Dialog, EmptyState, IconButton, Monogram, OtpInput, Spinner, stickyHead, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
 
 /** Asks for the vault's password or PIN before deleting items for good. */
@@ -196,7 +196,7 @@ export function TrashView({ onChanged, credential: initialCredential }: { onChan
 
   return (
     <div className="page page-wide">
-      <header className="page-head page-head-row">
+      <header className="page-head page-head-row" ref={stickyHead}>
         <div>
           <h1>Recently deleted</h1>
           <p className="page-lede">Deleted items wait here until you remove them for good. That needs your {CREDENTIAL_NAMES[credential.type]}.</p>

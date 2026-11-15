@@ -7,7 +7,7 @@ import { useCopy, useSettings, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
 import type { AuditIssue, AuditItem, AuditReport, DuplicateGroup } from '../../shared/types.ts';
 import { plural, safeHref, timeAgo } from '../util.ts';
-import { Button, ContextMenu, Dialog, EmptyState, Monogram, Spinner, STRENGTH_WORDS, useContextMenu } from './ui.tsx';
+import { Button, ContextMenu, Dialog, EmptyState, Monogram, Spinner, stickyHead, STRENGTH_WORDS, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
 
 const ISSUES: { key: AuditIssue; label: string; explain: string; icon: ReactNode; tone: string }[] = [
@@ -426,7 +426,7 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
 
   return (
     <div className="page page-wide">
-      <header className="page-head page-head-row">
+      <header className="page-head page-head-row" ref={stickyHead}>
         <div>
           <h1>Security audit</h1>
           <p className="page-lede">

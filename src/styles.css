@@ -6103,3 +6103,8 @@ button.sync-note {
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+
+/* Side panels stay put just below the fixed page title; only the list beside them scrolls. */
+.page-pane .audit-side {
+  top: calc(var(--page-head-h, 120px) + 16px);
+}

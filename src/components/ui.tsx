@@ -822,3 +822,17 @@ export function OtpInput({
     </div>
   );
 }
+
+/**
+ * Ref for a page's fixed title bar: keeps `--page-head-h` on its scrolling pane in step with the
+ * bar's height, so side panels can stay put just below it while the list scrolls.
+ */
+export function stickyHead(el: HTMLElement | null) {
+  const pane = el?.closest<HTMLElement>('.page-pane');
+  if (!el || !pane) return;
+  const sync = () => pane.style.setProperty('--page-head-h', `${el.offsetHeight}px`);
+  sync();
+  const watch = new ResizeObserver(sync);
+  watch.observe(el);
+  return () => watch.disconnect();
+}
