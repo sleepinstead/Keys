@@ -62,7 +62,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
   useEffect(stopSelecting, [title, stopSelecting]);
   useEffect(() => {
     if (!inSelection) return;
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.dialog-layer, .menu') && stopSelecting();
+    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.dialog-layer, .menu, .palette-layer') && stopSelecting();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [inSelection, stopSelecting]);
@@ -176,8 +176,9 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
     if (sort !== 'name' || query) return [{ letter: '', items: entries }];
     const out: { letter: string; items: EntrySummary[] }[] = [];
     for (const e of entries) {
-      const ch = e.title.trim()[0]?.toUpperCase() ?? '#';
-      const letter = /[A-Z]/.test(ch) ? ch : '#';
+      // "Éclair" files under E, like the name sort places it; anything that isn't a letter under #.
+      const ch = (e.title.trim().normalize('NFD')[0] ?? '').toUpperCase();
+      const letter = /\p{L}/u.test(ch) ? ch : '#';
       const last = out[out.length - 1];
       if (last && last.letter === letter) last.items.push(e);
       else out.push({ letter, items: [e] });
@@ -294,8 +295,8 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
           )
         ) : (
           <ul className="entry-list">
-            {groups.map((g) => (
-              <Fragment key={g.letter || 'all'}>
+            {groups.map((g, i) => (
+              <Fragment key={`${i}-${g.letter}`}>
                 {g.letter && (
                   <li className="list-letter" aria-hidden="true">
                     {g.letter}

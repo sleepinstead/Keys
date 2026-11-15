@@ -44,7 +44,7 @@ impl From<rusqlite::Error> for HttpError {
             Some(ReadOnly) => HttpError::coded(409, "Your database just changed on another device. Try that again.", "DB_CHANGED"),
             Some(DatabaseBusy | DatabaseLocked) => HttpError::coded(503, "The database is busy (another program is using it). Try again in a moment.", "BUSY"),
             _ => {
-                eprintln!("Unexpected database error: {}", err.sqlite_error_code().map(|c| format!("{c:?}")).unwrap_or_else(|| "other".into()));
+                log::error!("Unexpected database error: {}", err.sqlite_error_code().map(|c| format!("{c:?}")).unwrap_or_else(|| "other".into()));
                 HttpError::new(500, "Internal error")
             }
         }

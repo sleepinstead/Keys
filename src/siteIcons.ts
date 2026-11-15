@@ -56,7 +56,7 @@ export function useSiteIcons(entries: EntrySummary[] | null, enabled: boolean, o
           try {
             const icon = await normalizeIcon((await api.siteIcon(e.url)).icon);
             if (stopped.current) return;
-            done.current.push(await api.setIcon(e.id, icon));
+            done.current.push(await api.setIcon(e.id, icon, true));
             flushTimer.current ??= window.setTimeout(flush, FLUSH_MS);
           } catch (err) {
             // Locked: stop asking (each request would only fail and announce the lock again).

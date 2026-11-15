@@ -104,6 +104,11 @@ impl Presence {
                 if !n.starts_with(&prefix) || !n.ends_with(".json") {
                     return None;
                 }
+                // Markers are tiny: anything else (a huge file, a FIFO, a link) is skipped unread.
+                let meta = fs::symlink_metadata(e.path()).ok()?;
+                if !meta.is_file() || meta.len() > 4096 {
+                    return None;
+                }
                 let m: Value = serde_json::from_str(&fs::read_to_string(e.path()).ok()?).ok()?;
                 let at = m["at"].as_f64()? as i64;
                 let name = m["name"].as_str()?;
@@ -141,6 +146,18 @@ fn last_touched(r: &Row) -> i64 {
 }
 
 /// Rows in `other` that are missing here or newer than ours.
+/// Opens a possible conflict copy read-only and defensively: it could be a planted file, so no
+/// views or triggers, no trusted schema, and every query gives up after a few seconds.
+fn open_copy(path: &std::path::Path) -> Option<Connection> {
+    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).ok()?;
+    db.execute_batch("PRAGMA trusted_schema = OFF;").ok()?;
+    db.set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true).ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    db.progress_handler(10_000, Some(move || std::time::Instant::now() > deadline));
+    let tricks: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type IN ('view', 'trigger')", [], |r| r.get(0)).ok()?;
+    (tricks == 0).then_some(db)
+}
+
 fn diff(store: &mut Store, other: &Connection) -> Result<Vec<(Table, Row)>> {
     let mut rows = Vec::new();
     for (table, sql) in [(Table::Categories, "SELECT id, blob, created_at, updated_at, NULL FROM categories"), (Table::Entries, "SELECT id, blob, created_at, updated_at, deleted_at FROM entries")] {
@@ -181,7 +198,7 @@ pub fn find_conflicts(store: &mut Store) -> Vec<Value> {
         if !meta.is_file() || meta.len() == 0 {
             continue;
         }
-        let Ok(db) = Connection::open_with_flags(entry.path(), OpenFlags::SQLITE_OPEN_READ_ONLY) else { continue };
+        let Some(db) = open_copy(&entry.path()) else { continue };
         let app: i64 = db.query_row("PRAGMA application_id", [], |r| r.get(0)).unwrap_or(0);
         if app != APP_ID || vault_id(&db).as_deref() != Some(ours.as_str()) {
             continue;
@@ -204,7 +221,7 @@ pub fn merge_conflict(store: &mut Store, file: &str) -> Result<Value> {
     if !known {
         return Err(HttpError::new(409, "That copy is no longer there, or has nothing new"));
     }
-    let db = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let db = open_copy(std::path::Path::new(file)).ok_or_else(|| HttpError::new(409, "That copy can’t be read"))?;
     let rows = diff(store, &db)?;
     drop(db);
     store.transaction(|s| rows.iter().try_for_each(|(t, r)| s.put_raw(*t, r)))?;

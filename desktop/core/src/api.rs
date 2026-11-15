@@ -41,6 +41,11 @@ pub struct Inner {
     /// "Open on this computer" marker beside a shared database (None in tests).
     presence: Option<Presence>,
     breach_running: bool,
+    /// Where this Mac keeps its browser pairings (None: in memory, for tests).
+    pairings_file: Option<std::path::PathBuf>,
+    mem_pairings: Value,
+    /// Last conflict-copy scan: when, for which file revision, and what it found.
+    conflicts: Option<(std::time::Instant, String, Value)>,
 }
 
 pub struct App {
@@ -58,7 +63,22 @@ pub type Shared = Arc<App>;
 
 impl App {
     pub fn new(storage: Storage, port: u16) -> Shared {
-        let mut inner = Inner { storage, session: Session::new(), quick: QuickUnlock::default(), vault_id: None, unlocking: false, pending: Vec::new(), presence: None, breach_running: false };
+        let mut inner = Inner {
+            storage,
+            session: Session::new(),
+            quick: QuickUnlock::default(),
+            vault_id: None,
+            unlocking: false,
+            pending: Vec::new(),
+            presence: None,
+            breach_running: false,
+            pairings_file: None,
+            mem_pairings: Value::Null,
+            conflicts: None,
+        };
+        if inner.storage.file().as_os_str() != ":memory:" {
+            inner.pairings_file = Some(storage::config_dir().join("browsers.json"));
+        }
         inner.vault_id = inner.current_vault_id();
         let app_url = format!("http://localhost:{port}");
         Arc::new(App { inner: Mutex::new(inner), origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")], app_url, update: Mutex::new(None), install: std::sync::OnceLock::new() })
@@ -110,14 +130,41 @@ impl Inner {
         (self.storage.available() && !self.storage.is_default()).then(|| self.storage.file().to_path_buf())
     }
 
+    /// Browsers connected on *this Mac*, per vault. They live in Keys' own settings folder, never in
+    /// the (possibly shared) vault file: anyone who could write to a synced folder could otherwise
+    /// plant a pairing for a token they chose.
     fn read_pairings(&mut self) -> Result<Vec<Value>> {
-        // Read outside the parse: an unreachable database must fail, not look like "no browsers".
-        let raw = self.store()?.get_meta(ext::PAIRINGS_META)?;
-        Ok(raw.and_then(|r| serde_json::from_str::<Value>(&r).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default())
+        let vault = self.vault_key()?;
+        let all = match &self.pairings_file {
+            Some(f) => std::fs::read_to_string(f).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null),
+            None => self.mem_pairings.clone(),
+        };
+        Ok(all.get(&vault).and_then(Value::as_array).cloned().unwrap_or_default())
+    }
+
+    fn vault_key(&mut self) -> Result<String> {
+        Ok(self.store()?.get_meta("created_at")?.unwrap_or_default())
     }
 
     fn write_pairings(&mut self, list: &[Value]) -> Result<()> {
-        self.store()?.set_meta(ext::PAIRINGS_META, &Value::Array(list.to_vec()).to_string())
+        let vault = self.vault_key()?;
+        let Some(file) = self.pairings_file.clone() else {
+            if !self.mem_pairings.is_object() {
+                self.mem_pairings = json!({});
+            }
+            self.mem_pairings[&vault] = Value::Array(list.to_vec());
+            return Ok(());
+        };
+        let mut all = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        all[&vault] = Value::Array(list.to_vec());
+        let failed = || HttpError::new(500, "Keys couldn’t save the browser connection");
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).map_err(|_| failed())?;
+        }
+        let tmp = file.with_extension("json.tmp");
+        std::fs::write(&tmp, all.to_string()).map_err(|_| failed())?;
+        let _ = std::fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o600));
+        std::fs::rename(&tmp, &file).map_err(|_| failed())
     }
 
     fn sweep(&mut self) {
@@ -147,14 +194,12 @@ impl Inner {
     /// After every request: if another device replaced the vault itself, the key no longer fits.
     fn after(&mut self) {
         let Ok(store) = self.storage.store() else { return };
-        if !std::mem::take(&mut store.reloaded) {
-            return;
-        }
-        let now = self.current_vault_id();
-        if self.vault_id.is_some() && now != self.vault_id {
+        store.reloaded = false;
+        // Another computer replaced the vault itself: this session's key doesn't fit it.
+        if std::mem::take(&mut store.swapped) {
             self.lock_all();
         }
-        self.vault_id = now;
+        self.vault_id = self.current_vault_id();
     }
 
     fn pin_status(&mut self) -> Result<Value> {
@@ -204,7 +249,11 @@ impl Inner {
 
 // ------------------------------------------------------------------ slow key work, off the async threads
 
+/// One Argon2 derivation at a time: each takes 128–512 MB, so several at once could exhaust memory.
+static KDF_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
 async fn derive(password: String, kdf: KdfParams) -> Result<Key> {
+    let _slot = KDF_SLOT.acquire().await.map_err(|_| HttpError::new(500, "Internal error"))?;
     tokio::task::spawn_blocking(move || crypto::derive_key(&password, &kdf)).await.map_err(|_| HttpError::new(500, "Internal error"))?.map_err(|e| HttpError::new(400, e))
 }
 
@@ -259,6 +308,13 @@ async fn check_password(app: &App, password: &str) -> Result<Option<Key>> {
             Ok(None)
         }
     }
+}
+
+/// The raw (encrypted) item rows and the session key, taken under the lock; decrypting happens after.
+fn rows_and_key(app: &App, token: Option<&str>) -> Result<(Vec<crate::store::Row>, Key)> {
+    let mut g = app.lock();
+    let key = g.key_for(token, true)?;
+    Ok((g.store()?.all(crate::store::Table::Entries)?, key))
 }
 
 /// Changing which file Keys uses, erasing, purging: needs the current credential.
@@ -417,7 +473,16 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             ok(g.status(token)?)
         }
         ("GET", ["storage", "template"]) => ok(json!({ "filename": "Keys.sqlite", "data": crypto::b64_encode(&Storage::template()?) })),
-        ("POST", ["storage", "browse"]) => ok(json!({ "path": storage::browse(body.get("mode").and_then(Value::as_str) == Some("save")).await? })),
+        ("POST", ["storage", "browse"]) => {
+            // Opening a Finder dialog is for this app's own unlocked window (or before there's a vault).
+            {
+                let mut g = app.lock();
+                if g.storage.available() && vault::is_initialized(g.store()?)? {
+                    g.key_for(token, true)?;
+                }
+            }
+            ok(json!({ "path": storage::browse(body.get("mode").and_then(Value::as_str) == Some("save")).await? }))
+        }
 
         // ------------------------------------------------------------ setup / unlock
         ("POST", ["setup"]) => {
@@ -428,9 +493,13 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             }
             let dek = crypto::random_key();
             let kdf = crypto::new_kdf_params(is_short_credential(&credential));
+            let file = app.lock().storage.file().to_path_buf();
             let kek = derive(password, kdf.clone()).await?;
             let wrapped = crypto::encrypt(&kek, dek.as_ref(), vault::DEK_AAD);
             let mut g = app.lock();
+            if g.storage.file() != file {
+                return Err(HttpError::new(409, "The database changed during setup. Start again."));
+            }
             vault::commit_setup(g.store()?, &dek, &kdf, &wrapped, &credential)?;
             ok(g.opened(dek)?)
         }
@@ -518,7 +587,15 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             g.storage.check_for_changes();
             let db = g.shared_file();
             let devices = g.presence.as_ref().map(|p| p.others(db.as_deref())).unwrap_or_default();
-            let conflicts = sharing::find_conflicts(g.store()?);
+            // Conflict copies are looked for at most once a minute, or right after the file changed.
+            let revision = g.storage.revision();
+            let fresh = g.conflicts.as_ref().is_some_and(|(at, rev, _)| *rev == revision && at.elapsed() < std::time::Duration::from_secs(60));
+            if !fresh {
+                let found = Value::Array(sharing::find_conflicts(g.store()?));
+                g.conflicts = Some((std::time::Instant::now(), revision, found));
+            }
+            let conflicts = g.conflicts.as_ref().map(|(_, _, c)| c.clone()).unwrap_or(json!([]));
+            g.settings()?; // picks up an auto-lock time changed on another computer
             let update = app.update.lock().unwrap_or_else(|p| p.into_inner()).clone();
             Ok(json!({ "revision": g.storage.revision(), "devices": devices, "conflicts": conflicts, "update": update }))
         }),
@@ -548,10 +625,11 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         }
 
         // ------------------------------------------------------------ entries
-        ("GET", ["entries"]) => with!(|g| {
-            let key = g.key_for(token, true)?;
-            Ok(Value::Array(vault::list_summaries(g.store()?, &key)?))
-        }),
+        ("GET", ["entries"]) => {
+            let (rows, key) = rows_and_key(app, token)?;
+            let list = tokio::task::spawn_blocking(move || vault::entries_from(&rows, &key)).await.map_err(|_| HttpError::new(500, "Internal error"))?;
+            ok(Value::Array(list.iter().map(vault::summary).collect()))
+        }
         ("GET", ["entries", id]) => with!(|g| {
             let key = g.key_for(token, true)?;
             Ok(Value::Object(vault::get_entry(g.store()?, &key, id)?))
@@ -566,6 +644,13 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         }
         ("PUT", ["entries", id]) => with!(|g| {
             let key = g.key_for(token, true)?;
+            // The editor says which version it started from, so a save never silently undoes a change
+            // that arrived meanwhile (from another computer, or the browser extension).
+            if let Some(base) = body.get("baseUpdatedAt").and_then(Value::as_i64)
+                && vault::get_entry(g.store()?, &key, id)?["updatedAt"].as_i64() != Some(base)
+            {
+                return Err(HttpError::coded(409, "This item changed elsewhere after you opened it. Close it and open it again to see the latest, then make your change.", "CHANGED"));
+            }
             let input = validate::sanitize_entry_input(body)?;
             Ok(Value::Object(vault::update_entry(g.store()?, &key, id, input)?))
         }),
@@ -614,7 +699,9 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             let key = g.key_for(token, true)?;
             let icon = validate::sanitize_entry_input(&json!({ "type": "login", "title": "x", "icon": body.get("icon") }))?["icon"].clone();
             vault::get_entry(g.store()?, &key, id)?;
-            vault::patch_entry(g.store()?, &key, id, json!({ "icon": icon }), |_| true)?;
+            // The background website-icon fetch only fills a missing icon, never one the person chose meanwhile.
+            let only_if_empty = body.get("onlyIfEmpty") == Some(&Value::Bool(true));
+            vault::patch_entry(g.store()?, &key, id, json!({ "icon": icon }), |d| !only_if_empty || d.get("icon").and_then(Value::as_str).unwrap_or("").is_empty())?;
             Ok(Value::Object(vault::get_entry(g.store()?, &key, id)?))
         }),
         ("DELETE", ["entries", id, "history"]) => with!(|g| {
@@ -713,9 +800,13 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             let label = credential_label(&vault::credential(app.lock().store()?)?);
             let dek = check_password(app, &current).await?.ok_or_else(|| HttpError::coded(401, format!("Current {label} is incorrect"), "BAD_PASSWORD"))?;
             let kdf = crypto::new_kdf_params(is_short_credential(&credential));
+            let file = app.lock().storage.file().to_path_buf();
             let kek = derive(next, kdf.clone()).await?;
             let wrapped = crypto::encrypt(&kek, dek.as_ref(), vault::DEK_AAD);
             let mut g = app.lock();
+            if g.storage.file() != file {
+                return Err(HttpError::new(409, "The database changed while changing the password. Try again."));
+            }
             vault::commit_new_credential(g.store()?, &kdf, &wrapped, &credential)?;
             if is_short_credential(&credential) {
                 g.quick.disarm();
@@ -799,7 +890,8 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
                     return Err(HttpError::coded(400, "Choose a file password for the backup (at least 10 characters).", "NEEDS_EXPORT_PASSWORD"));
                 }
                 let password = if given.is_empty() { master.clone() } else { given };
-                if password != master && validate::len16(&password) < MIN_MASTER_LENGTH {
+                // A PIN or pattern is far too short to protect a file that may be copied anywhere.
+                if (password != master || short) && validate::len16(&password) < MIN_MASTER_LENGTH {
                     return Err(HttpError::new(400, format!("Export password must be at least {MIN_MASTER_LENGTH} characters")));
                 }
                 let kdf = crypto::new_kdf_params(false);
@@ -881,7 +973,7 @@ fn security_headers(res: &mut Response) {
 
 /// Blocks DNS rebinding: the Host header must be a loopback name.
 fn loopback_host(headers: &HeaderMap) -> bool {
-    let Some(host) = headers.get(header::HOST).and_then(|h| h.to_str().ok()) else { return false };
+    let Some(host) = headers.get(header::HOST).and_then(|h| h.to_str().ok()).map(str::to_ascii_lowercase) else { return false };
     let name = if host.starts_with('[') { host.split(']').next().map(|s| format!("{s}]")) } else { host.split(':').next().map(str::to_string) };
     matches!(name.as_deref(), Some("localhost" | "127.0.0.1" | "[::1]"))
 }
@@ -952,13 +1044,18 @@ async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, header
     if headers.get("x-keys-request").and_then(|v| v.to_str().ok()) != Some("1") || origin.is_some_and(|o| !app.origins.iter().any(|a| a == o)) || site.is_some_and(|s| s != "same-origin") {
         return json_response(403, json!({ "error": "Request blocked", "code": "FORBIDDEN" }));
     }
-    // Backups carry each item's icon, so imports may be large.
+    // Backups carry each item's icon, so imports may be large: only for an unlocked session.
+    let token = headers.get("x-keys-session").and_then(|v| v.to_str().ok());
+    if path == "import"
+        && let Err(e) = app.lock().key_for(token, false)
+    {
+        return respond(Err(e));
+    }
     let limit = if path == "import" { 100 * 1024 * 1024 } else { 1024 * 1024 };
     let value = match read_json(body, limit).await {
         Ok(v) => v,
         Err(res) => return *res,
     };
-    let token = headers.get("x-keys-session").and_then(|v| v.to_str().ok());
     let out = route(app, method, path, token, &value).await;
     app.lock().after();
     respond(out)
@@ -973,9 +1070,8 @@ fn pairing_of(g: &mut Inner, token: Option<&str>, origin: Option<&str>) -> Resul
     let i = list.iter().position(|p| p["hash"].as_str().is_some_and(|h| crypto::safe_equal(h, &hash))).ok_or_else(not_paired)?;
     // A token copied out of the extension doesn't work from anywhere else. Chrome leaves Origin off
     // some extension requests (plain GETs), so only a different one is refused.
-    if let (Some(bound), Some(origin)) = (list[i]["origin"].as_str(), origin)
-        && bound != origin
-    {
+    let Some(bound) = list[i]["origin"].as_str() else { return Err(not_paired()) };
+    if origin.is_some_and(|o| o != bound) {
         return Err(not_paired());
     }
     // Remembered roughly, so a busy page doesn't write to the database on every request.
@@ -1065,12 +1161,17 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
         }
         // Logins for the page (or all of them, for the popup's search). Never includes passwords.
         ("GET", ["logins"]) => {
-            let mut g = app.lock();
-            pairing_of(&mut g, token, origin)?;
-            let key = ext_key(&mut g, false)?;
+            let (rows, key) = {
+                let mut g = app.lock();
+                pairing_of(&mut g, token, origin)?;
+                let key = ext_key(&mut g, false)?;
+                (g.store()?.all(crate::store::Table::Entries)?, key)
+            };
             let url = q("url").unwrap_or_default();
             let all = q("all").as_deref() == Some("1");
-            let mut logins: Vec<Value> = vault::list_entries(g.store()?, &key)?
+            // Runs on every page load: decrypt away from the app lock.
+            let entries = tokio::task::spawn_blocking(move || vault::entries_from(&rows, &key)).await.map_err(|_| HttpError::new(500, "Internal error"))?;
+            let mut logins: Vec<Value> = entries
                 .iter()
                 .filter(|e| e["type"] == "login" && (e["username"].as_str().is_some_and(|u| !u.is_empty()) || e["password"].as_str().is_some_and(|p| !p.is_empty())))
                 .map(|e| {

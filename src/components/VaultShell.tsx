@@ -43,6 +43,8 @@ const TrashView = preloadable(() => import('./TrashView.tsx').then((m) => m.Tras
 
 const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'] as const;
 const PING_EVERY_MS = 20_000;
+/** Name order, built once: localeCompare with options builds a new collator on every comparison. */
+const byName = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
 
 /** Keeps the server session alive while the person is active, and notices when it has locked. */
 function useSessionKeeper(settings: Settings, expiresAt: number | null, setExpiresAt: (t: number | null) => void, lock: () => void) {
@@ -153,9 +155,21 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
 
   useSessionKeeper(settings, expiresAt, setExpiresAt, onLock);
 
+  // Every list load and local change gets a number; an older load that finishes late is dropped, so it
+  // can't undo a save or a delete made while it was on its way.
+  const entriesSeq = useRef(0);
+  const editEntries = useCallback((change: (list: EntrySummary[] | null) => EntrySummary[]) => {
+    entriesSeq.current++;
+    setEntries(change);
+  }, []);
   const loadEntries = useCallback(async () => {
+    const n = ++entriesSeq.current;
     try {
-      setEntries(await api.entries());
+      const list = await api.entries();
+      if (n !== entriesSeq.current) return;
+      setEntries(list);
+      // The open item was deleted elsewhere: close it instead of showing a dead error.
+      setSelectedId((id) => (id && !list.some((e) => e.id === id) ? null : id));
     } catch (err) {
       toast(errorMessage(err), 'error');
     }
@@ -286,7 +300,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
   const visible = useMemo(() => {
     const list = (entries ?? []).filter((e) => matches(e, filter, query.trim(), haystacks.get(e.id) ?? ''));
     return sort === 'name'
-      ? list.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }))
+      ? list.sort((a, b) => byName(a.title, b.title))
       : list.sort((a, b) => b.updatedAt - a.updatedAt);
   }, [entries, haystacks, viewKey(view), query, sort]);
 
@@ -344,7 +358,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
 
   const onSaved = (saved: Entry) => {
     const wasNew = !editor?.entry;
-    setEntries((list) => [...(list ?? []).filter((e) => e.id !== saved.id), summarise(saved)]);
+    editEntries((list) => [...(list ?? []).filter((e) => e.id !== saved.id), summarise(saved)]);
     setEditor(null);
     setView((v) => (v.kind === 'items' ? v : { kind: 'items', filter: { kind: 'all' } }));
     setSelectedId(saved.id);
@@ -415,7 +429,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
   // Logins show their website's icon by default.
   useSiteIcons(entries, !settings.hideIcons.login, (batch) => {
     const byId = new Map(batch.map((e) => [e.id, summarise(e)]));
-    setEntries((list) => (list ?? []).map((e) => byId.get(e.id) ?? e));
+    editEntries((list) => (list ?? []).map((e) => byId.get(e.id) ?? e));
     if (selectedRef.current && byId.has(selectedRef.current)) setDetailVersion((v) => v + 1);
   });
 
@@ -512,11 +526,11 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                   onSelect={setSelectedId}
                   onEdit={(entry) => openEditor(entry)}
                   onChanged={(updated) => {
-                    setEntries((list) => (list ?? []).map((e) => (e.id === updated.id ? summarise(updated) : e)));
+                    editEntries((list) => (list ?? []).map((e) => (e.id === updated.id ? summarise(updated) : e)));
                     if (updated.id === selectedRef.current) setDetailVersion((v) => v + 1);
                   }}
                   onDeleted={(id) => {
-                    setEntries((list) => (list ?? []).filter((e) => e.id !== id));
+                    editEntries((list) => (list ?? []).filter((e) => e.id !== id));
                     if (selectedRef.current === id) setSelectedId(null);
                     refreshAudit();
                     refreshTrash();
@@ -541,10 +555,10 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
                       version={detailVersion}
                       categories={categories}
                       onEdit={(entry) => openEditor(entry)}
-                      onChanged={(updated) => setEntries((list) => [...(list ?? []).filter((e) => e.id !== updated.id), summarise(updated)])}
+                      onChanged={(updated) => editEntries((list) => [...(list ?? []).filter((e) => e.id !== updated.id), summarise(updated)])}
                       onDeleted={(id) => {
                         // The id of what was actually deleted: the selection may already be the next item.
-                        setEntries((list) => (list ?? []).filter((e) => e.id !== id));
+                        editEntries((list) => (list ?? []).filter((e) => e.id !== id));
                         setSelectedId((cur) => (cur === id ? null : cur));
                         refreshAudit();
                         refreshTrash();

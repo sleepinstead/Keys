@@ -6083,3 +6083,9 @@ button.sync-note {
     animation: none;
   }
 }
+
+/* Long lists: rows far off screen skip layout and paint until scrolled near. */
+.entry-list > li {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}

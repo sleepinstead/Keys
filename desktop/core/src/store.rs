@@ -106,6 +106,10 @@ pub fn inspect_database(file: &Path) -> std::result::Result<bool, String> {
     if !["meta", "entries", "categories"].iter().all(|t| tables.iter().any(|x| x == t)) {
         return Err("That SQLite file isn’t a Keys database".into());
     }
+    let tricks: i64 = db.query_row("SELECT count(*) FROM sqlite_master WHERE type IN ('view', 'trigger')", [], |r| r.get(0)).map_err(|_| damaged())?;
+    if tricks > 0 {
+        return Err("That SQLite file isn’t a Keys database".into());
+    }
     let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|_| damaged())?;
     if version > MIGRATIONS.len() as i64 {
         return Err("That database was made by a newer version of Keys".into());
@@ -124,6 +128,9 @@ pub struct Store {
     pub revision: u64,
     /// Set when `refresh` re-read the file; the app checks and clears it.
     pub reloaded: bool,
+    /// Set when the file was replaced by a *different* vault (another computer erased it or connected
+    /// another one). Writes are refused until the app has locked, so nothing lands under the old key.
+    pub swapped: bool,
     seen: Option<Seen>,
 }
 
@@ -132,7 +139,7 @@ impl Store {
     pub fn open(file: impl Into<PathBuf>) -> Result<Store> {
         let file = file.into();
         let conn = Self::connect(&file)?;
-        let mut store = Store { conn, file, revision: 0, reloaded: false, seen: None };
+        let mut store = Store { conn, file, revision: 0, reloaded: false, swapped: false, seen: None };
         store.migrate()?;
         let app_id: i64 = store.conn.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         if app_id != APP_ID {
@@ -156,8 +163,11 @@ impl Store {
             "PRAGMA journal_mode = DELETE;
              PRAGMA synchronous = FULL;
              PRAGMA foreign_keys = ON;
-             PRAGMA secure_delete = ON;",
+             PRAGMA secure_delete = ON;
+             PRAGMA trusted_schema = OFF;",
         )?;
+        // A file from a shared folder may be hostile: no schema tricks, no writable sqlite_master.
+        conn.set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
         Ok(conn)
     }
 
@@ -196,9 +206,16 @@ impl Store {
             return false;
         }
         let Ok(next) = Self::connect(&self.file) else { return false };
-        // A half-synced file fails here: keep the old connection.
-        if next.query_row("SELECT count(*) FROM meta", [], |r| r.get::<_, i64>(0)).is_err() {
+        // A half-synced file fails here, and so does one with views or triggers (Keys never makes
+        // any): keep the old connection.
+        let tricks: rusqlite::Result<i64> = next.query_row("SELECT count(*) FROM sqlite_master WHERE type IN ('view', 'trigger')", [], |r| r.get(0));
+        if next.query_row("SELECT count(*) FROM meta", [], |r| r.get::<_, i64>(0)).is_err() || tricks.map_or(true, |n| n > 0) {
             return false;
+        }
+        let vault_of = |c: &Connection| c.query_row("SELECT value FROM meta WHERE key = 'created_at'", [], |r| r.get::<_, String>(0)).ok();
+        let (before, after) = (vault_of(&self.conn), vault_of(&next));
+        if before.is_some() && before != after {
+            self.swapped = true;
         }
         self.conn = next;
         self.remember(); // first: migrating saves, and a save checks for changes again
@@ -211,14 +228,34 @@ impl Store {
 
     /// Before a save: pick up other devices' changes first. After: note the file as ours.
     fn write<T>(&mut self, run: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<T> {
-        if !self.in_transaction() {
+        let outer = !self.in_transaction();
+        if outer {
             self.refresh();
         }
+        if self.swapped {
+            return Err(HttpError::locked());
+        }
+        let before = self.stat();
         let result = run(&self.conn)?;
-        if !self.in_transaction() {
-            self.remember();
+        if outer {
+            self.after_write(before)?;
         }
         Ok(result)
+    }
+
+    /// After a save: if the sync app replaced the file while it was being written, the save went into
+    /// the old copy. Pick up the new one and ask for the change again, instead of carrying on with
+    /// the stale copy.
+    fn after_write(&mut self, before: Option<Seen>) -> Result<()> {
+        let now = self.stat();
+        if let (Some(b), Some(n)) = (before, now)
+            && (b.ino, b.dev) != (n.ino, n.dev)
+        {
+            self.refresh();
+            return Err(HttpError::coded(409, "Your database just changed on another device. Try that again.", "DB_CHANGED"));
+        }
+        self.remember();
+        Ok(())
     }
 
     fn migrate(&mut self) -> Result<()> {
@@ -242,11 +279,15 @@ impl Store {
     /// Runs `f` inside one IMMEDIATE transaction: all of it lands, or none of it.
     pub fn transaction<T>(&mut self, f: impl FnOnce(&mut Store) -> Result<T>) -> Result<T> {
         self.refresh();
+        if self.swapped {
+            return Err(HttpError::locked());
+        }
+        let before = self.stat();
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         match f(self) {
             Ok(v) => {
                 self.conn.execute_batch("COMMIT")?;
-                self.remember();
+                self.after_write(before)?;
                 Ok(v)
             }
             Err(e) => {

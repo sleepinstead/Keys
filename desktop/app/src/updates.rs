@@ -27,14 +27,47 @@ fn report(app: &AppHandle, update: &Update, state: &str) {
 }
 
 /// Downloads, checks the signature, installs and restarts. On failure the sidebar says so.
+/// Set while an update downloads and installs, so a second click (sidebar plus menu) can't start
+/// another one, and a background check doesn't reset the sidebar card meanwhile.
+static INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Downloads the package, trying each mirror listed in latest.json and then its main address. Every
+/// copy must carry the Keys update signature, so a mirror can at worst hold an update back.
+async fn download(update: &Update) -> Result<Vec<u8>, String> {
+    let mut sources: Vec<tauri::Url> = update.raw_json["mirrors"].as_array().into_iter().flatten().filter_map(|m| m.as_str()?.parse().ok()).filter(|u: &tauri::Url| u.scheme() == "https").collect();
+    sources.push(update.download_url.clone());
+    let mut last = String::from("no download address");
+    for url in sources {
+        let mut copy = update.clone();
+        copy.download_url = url;
+        match copy.download(|_, _| {}, || {}).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) => last = e.to_string(),
+        }
+    }
+    Err(last)
+}
+
 pub async fn install(app: AppHandle) {
-    let Some(update) = app.state::<Pending>().0.lock().unwrap_or_else(|p| p.into_inner()).clone() else { return };
+    use std::sync::atomic::Ordering;
+    if INSTALLING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(update) = app.state::<Pending>().0.lock().unwrap_or_else(|p| p.into_inner()).clone() else {
+        INSTALLING.store(false, Ordering::SeqCst);
+        return;
+    };
     report(&app, &update, "installing");
-    match update.download_and_install(|_, _| {}, || {}).await {
+    let installed = match download(&update).await {
+        Ok(bytes) => update.install(bytes).map_err(|e| e.to_string()),
+        Err(e) => Err(e),
+    };
+    match installed {
         // A clean restart: the quit handler locks the vault and removes this Mac's marker first.
         Ok(()) => app.request_restart(),
         Err(e) => {
-            eprintln!("Update failed: {e}");
+            INSTALLING.store(false, Ordering::SeqCst);
+            log::error!("Update failed: {e}");
             report(&app, &update, "failed");
             notice(&app, "The update didn’t install", "Keys couldn’t download or verify the update. Nothing was changed. Try again later.", MessageDialogKind::Warning);
         }
@@ -79,13 +112,17 @@ pub async fn check(app: AppHandle, manual: bool) {
     if !manual && !auto_enabled() {
         return;
     }
-    let mut builder = app.updater_builder();
+    if INSTALLING.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    // Never hang: a stalled network (some block GitHub's download server) fails after a while instead.
+    let mut builder = app.updater_builder().timeout(Duration::from_secs(120)).configure_client(|c| c.connect_timeout(Duration::from_secs(10)).read_timeout(Duration::from_secs(30)));
     // Development only: point at a local test feed.
     #[cfg(debug_assertions)]
     if let Some(url) = std::env::var("KEYS_UPDATE_URL").ok().and_then(|u| u.parse().ok()) {
         builder = match builder.endpoints(vec![url]) {
             Ok(b) => b,
-            Err(e) => return eprintln!("update feed: {e}"),
+            Err(e) => return log::warn!("update feed: {e}"),
         };
     }
     let found = match builder.build() {
@@ -102,7 +139,7 @@ pub async fn check(app: AppHandle, manual: bool) {
             return;
         }
         Err(e) => {
-            eprintln!("Update check failed: {e}");
+            log::warn!("Update check failed: {e}");
             if manual {
                 notice(&app, "Couldn’t check for updates", "Keys couldn’t reach GitHub. Check your connection and try again.", MessageDialogKind::Warning);
             }

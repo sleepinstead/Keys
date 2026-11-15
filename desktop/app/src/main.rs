@@ -19,10 +19,20 @@ fn open_in_browser(url: &Url) {
     }
 }
 
-/// A GUI app has no terminal to print to, so problems at launch get a real alert.
+/// A GUI app has no terminal to print to, so problems at launch get a real alert. The text goes in
+/// as arguments, never into the script itself.
 fn alert(title: &str, message: &str) {
-    let script = format!("display alert {title:?} message {message:?} as critical");
-    let _ = std::process::Command::new("/usr/bin/osascript").args(["-e", &script]).status();
+    let _ = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", "on run argv", "-e", "display alert (item 1 of argv) message (item 2 of argv) as critical", "-e", "end run", title, message])
+        .status();
+}
+
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
 }
 
 /// Binds the port, waiting a moment if the previous Keys is still closing (after an update).
@@ -39,18 +49,14 @@ fn bind(port: u16) -> Option<std::net::TcpListener> {
 fn main() {
     let port: u16 = std::env::var("KEYS_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5174);
 
-    // Bind first, so the window never opens onto nothing (and a second Keys says so clearly).
-    let Some(listener) = bind(port) else {
-        alert("Keys is already open", &format!("Another copy of Keys, or Keys in the browser (npm start), is using port {port}. Quit it, then open Keys again."));
-        std::process::exit(1);
-    };
-    listener.set_nonblocking(true).expect("non-blocking socket");
-
-    let storage = Storage::open(Some(config_dir().join("location.json")), default_db_file());
-    let keys = keys_core::api::App::new(storage, port);
-    let on_exit = keys.clone();
+    let on_exit: std::sync::Arc<std::sync::OnceLock<keys_core::api::Shared>> = Default::default();
+    let keys_slot = on_exit.clone();
 
     tauri::Builder::default()
+        // First: opening Keys again just brings the open window forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)))
+        // ~/Library/Logs/app.keys.desktop/: warnings and errors only, never request contents.
+        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).max_file_size(1 << 20).build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .menu(updates::menu)
@@ -68,23 +74,41 @@ fn main() {
             _ => {}
         })
         .setup(move |app| {
+            // Bind before opening the window, so it never shows nothing. Another Keys was ruled out
+            // above, so this is Keys in the browser (npm start) or another program.
+            let Some(listener) = bind(port) else {
+                alert("Keys can’t start", &format!("Another program is using port {port}, which Keys needs. If Keys is running in the browser (npm start), quit it, then open Keys again."));
+                std::process::exit(1);
+            };
+            listener.set_nonblocking(true)?;
+            let storage = Storage::open(Some(config_dir().join("location.json")), default_db_file());
+            let keys = keys_core::api::App::new(storage, port);
+            let _ = keys_slot.set(keys.clone());
             app.manage(keys.clone());
             app.manage(updates::Pending::default());
             let handle = app.handle().clone();
             keys.on_install(move || {
                 tauri::async_runtime::spawn(updates::install(handle.clone()));
             });
+            let died = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let listener = tokio::net::TcpListener::from_std(listener).expect("listener");
-                if let Err(e) = keys_core::api::serve_app(keys, listener).await {
-                    eprintln!("Keys stopped: {e}");
+                let stopped = match tokio::net::TcpListener::from_std(listener) {
+                    Ok(l) => keys_core::api::serve_app(keys, l).await,
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = stopped {
+                    log::error!("Keys stopped: {e}");
+                    alert("Keys stopped unexpectedly", "Open Keys again. Your vault is safe.");
+                    died.exit(1);
                 }
             });
-            let url: Url = format!("http://localhost:{port}/").parse().expect("valid URL");
+            // 127.0.0.1, not "localhost": that name can resolve to ::1 first, where another program
+            // could be listening and pose as Keys.
+            let url: Url = format!("http://127.0.0.1:{port}/").parse().expect("valid URL");
             let home = url.clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .on_navigation(move |to| {
-                    let ours = to.scheme() == "http" && matches!(to.host_str(), Some("localhost" | "127.0.0.1")) && to.port() == home.port();
+                    let ours = to.scheme() == "http" && to.host_str() == Some("127.0.0.1") && to.port() == home.port();
                     if !ours {
                         open_in_browser(to);
                     }
@@ -94,6 +118,8 @@ fn main() {
                     open_in_browser(&to);
                     NewWindowResponse::Deny
                 })
+                // The app's own drop zone (import) handles dropped files.
+                .disable_drag_drop_handler()
                 .title("Keys")
                 .inner_size(1240.0, 820.0)
                 .min_inner_size(880.0, 600.0)
@@ -102,13 +128,26 @@ fn main() {
             updates::schedule(app.handle().clone());
             Ok(())
         })
+        // Closing the window keeps Keys running (like other Mac apps), so the browser extension keeps
+        // working; ⌘Q quits. Auto-lock still applies.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .build(tauri::generate_context!())
         .expect("Keys couldn’t start")
-        .run(move |_, event| {
+        .run(move |app, event| match event {
+            // Clicking the Dock icon brings the window back.
+            tauri::RunEvent::Reopen { .. } => show_main(app),
             // On quit (and before an update restarts Keys): lock, and remove this computer's
             // "open" marker beside a shared database.
-            if let tauri::RunEvent::Exit = event {
-                on_exit.shutdown();
+            tauri::RunEvent::Exit => {
+                if let Some(keys) = on_exit.get() {
+                    keys.shutdown();
+                }
             }
+            _ => {}
         });
 }

@@ -76,7 +76,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     /* non-JSON error page */
   }
   if (!res.ok) {
-    if (res.status === 401 && data?.code === 'LOCKED') window.dispatchEvent(new Event(LOCK_EVENT));
+    // Locked, or the database file went away (a synced folder offline): back to the lock screen,
+    // which then explains what's wrong instead of every action failing one by one.
+    if ((res.status === 401 && data?.code === 'LOCKED') || (res.status === 503 && data?.code === 'NO_DATABASE')) window.dispatchEvent(new Event(LOCK_EVENT));
     throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, data?.code);
   }
   if (data?.sessionToken) writeToken(data.sessionToken);
@@ -118,7 +120,8 @@ export const api = {
   entries: () => request<EntrySummary[]>('GET', '/entries'),
   entry: (entryId: string) => request<Entry>('GET', `/entries/${id(entryId)}`),
   createEntry: (input: EntryInput) => request<Entry>('POST', '/entries', input),
-  updateEntry: (entryId: string, input: EntryInput) => request<Entry>('PUT', `/entries/${id(entryId)}`, input),
+  /** `baseUpdatedAt`: the version the editor started from; a newer one on the server gives 409 CHANGED. */
+  updateEntry: (entryId: string, input: EntryInput, baseUpdatedAt?: number) => request<Entry>('PUT', `/entries/${id(entryId)}`, { ...input, baseUpdatedAt }),
   updateEntries: (ids: string[], patch: { favorite?: boolean; categoryId?: string | null }) => request<{ updated: number }>('POST', '/entries/update', { ids, ...patch }),
   trash: () => request<TrashedEntry[]>('GET', '/trash'),
   restoreTrash: (ids: string[]) => request<{ restored: number }>('POST', '/trash/restore', { ids }),
@@ -126,7 +129,8 @@ export const api = {
     request<{ purged: number }>('POST', '/trash/purge', ids === 'all' ? { all: true, current } : { ids, current }),
   deleteEntries: (ids: string[]) => request<{ deleted: number }>('POST', '/entries/delete', { ids }),
   deleteEntry: (entryId: string) => request<{ ok: true }>('DELETE', `/entries/${id(entryId)}`),
-  setIcon: (entryId: string, icon: string) => request<Entry>('PUT', `/entries/${id(entryId)}/icon`, { icon }),
+  /** `onlyIfEmpty`: for the background fetch, so it never replaces an icon the person chose. */
+  setIcon: (entryId: string, icon: string, onlyIfEmpty = false) => request<Entry>('PUT', `/entries/${id(entryId)}/icon`, { icon, onlyIfEmpty }),
   clearHistory: (entryId: string) => request<Entry>('DELETE', `/entries/${id(entryId)}/history`),
 
   categories: () => request<Category[]>('GET', '/categories'),

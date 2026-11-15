@@ -30,7 +30,9 @@ export function captureBackdrop() {
   const copy = live.cloneNode(true) as HTMLElement;
   // The app's own labels ("All items", "Settings") stay readable under the dark overlay; anything that
   // came from the vault (titles, usernames, counts, category names, the open item) is removed outright.
-  const DATA = '.workspace, .nav-categories, .nav-count, .lock-btn, .topbar';
+  const DATA = '.workspace, .nav-categories, .nav-count, .lock-btn, .topbar, .sync-note, .update-card';
+  // Overlays (the ⌘K palette, dialogs, menus, toasts) hold vault data and aren't needed behind the card.
+  copy.querySelectorAll('.palette-layer, .dialog-layer, .menu, .toast, .toasts').forEach((el) => el.remove());
   for (const region of copy.querySelectorAll(DATA)) {
     const walk = document.createTreeWalker(region, NodeFilter.SHOW_TEXT);
     for (let t = walk.nextNode(); t; t = walk.nextNode()) t.nodeValue = '';

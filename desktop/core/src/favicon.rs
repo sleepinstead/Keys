@@ -41,7 +41,7 @@ pub fn is_private(ip: IpAddr) -> bool {
             if (s[0] == 0x64 && s[1] == 0xff9b) || s[0] == 0x2002 {
                 return true;
             }
-            v6.is_unspecified() || v6.is_loopback() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 || (s[0] & 0xff00) == 0xff00
+            v6.is_unspecified() || v6.is_loopback() || s[..6] == [0; 6] || (s[0] & 0xffc0) == 0xfec0 || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 || (s[0] & 0xff00) == 0xff00
         }
     }
 }
@@ -67,6 +67,8 @@ fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .dns_resolver(Arc::new(PublicOnly))
         .redirect(reqwest::redirect::Policy::none())
+        // A proxy would resolve names itself, around the public-address check.
+        .no_proxy()
         .timeout(Duration::from_secs(6))
         .user_agent("Mozilla/5.0 (compatible; Keys-Password-Manager)")
         .build()

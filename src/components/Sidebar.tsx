@@ -349,7 +349,11 @@ export function Sidebar({
 function UpdateCard({ update }: { update: AppUpdate }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(false);
-  useEffect(() => setError(update.state === 'failed'), [update.state]);
+  // The app reports progress: a failed install ends "Updating…" and offers Try again.
+  useEffect(() => {
+    if (update.state !== 'installing') setStarting(false);
+    setError(update.state === 'failed');
+  }, [update.state]);
   const busy = starting || update.state === 'installing';
   const install = async () => {
     setStarting(true);

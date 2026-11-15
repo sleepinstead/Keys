@@ -62,6 +62,7 @@ export function CommandPalette({
   }, [open]);
 
   const results = useMemo<Result[]>(() => {
+    if (!open) return []; // nothing to show: don't work through every item while closed
     const q = query.trim().toLowerCase();
     const commands: Result[] = [
       ...(Object.keys(TYPE_LABELS) as EntryType[]).map((t) => ({
@@ -91,7 +92,7 @@ export function CommandPalette({
       }));
     const cmds = q ? commands.filter((c) => score(c.label, q) > 0) : commands;
     return [...items, ...cmds];
-  }, [query, entries, actions]);
+  }, [open, query, entries, actions]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => {

@@ -40,7 +40,7 @@ pub fn new_kdf_params(short_credential: bool) -> KdfParams {
 
 /// KDF settings come from files the user opens, so bound them: a crafted file can't exhaust memory.
 pub fn is_valid_kdf(k: &KdfParams) -> bool {
-    k.algorithm == "argon2id" && (8192..=1_048_576).contains(&k.memory) && (1..=10).contains(&k.passes) && (1..=16).contains(&k.parallelism) && (16..=128).contains(&k.salt.len())
+    k.algorithm == "argon2id" && (8192..=524_288).contains(&k.memory) && (1..=10).contains(&k.passes) && (1..=16).contains(&k.parallelism) && (16..=128).contains(&k.salt.len())
 }
 
 /// Argon2id → 256-bit key. Slow on purpose: call it from a blocking thread.

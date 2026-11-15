@@ -288,3 +288,73 @@ async fn update_route_needs_the_mac_app_and_an_update() {
     let (s, _) = h.call("POST", "/update/install", None).await;
     assert_eq!((s, ran.load(std::sync::atomic::Ordering::SeqCst)), (StatusCode::OK, 1));
 }
+
+// ------------------------------------------------------------------ audit fixes
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_edit_and_background_icon_are_refused() {
+    let mut h = H::new();
+    h.setup().await;
+    let id = h.login("GitHub", "github.com", "pw-1").await;
+    let (_, opened) = h.call("GET", &format!("/entries/{id}"), None).await;
+    let base = opened["updatedAt"].as_i64().unwrap();
+    // Someone else changes it after the editor opened…
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let other = json!({ "type": "login", "title": "GitHub", "username": "me@x.com", "password": "pw-2", "url": "github.com" });
+    h.call("PUT", &format!("/entries/{id}"), Some(other)).await;
+    // …so the editor's save is refused instead of undoing that change.
+    let mine = json!({ "type": "login", "title": "GitHub (mine)", "username": "me@x.com", "password": "pw-1", "url": "github.com", "baseUpdatedAt": base });
+    let (s, v) = h.call("PUT", &format!("/entries/{id}"), Some(mine)).await;
+    assert_eq!((s, v["code"].as_str()), (StatusCode::CONFLICT, Some("CHANGED")));
+    let (_, now) = h.call("GET", &format!("/entries/{id}"), None).await;
+    assert_eq!(now["password"], "pw-2");
+
+    // The person picks a letter tile; a late background fetch must not replace it.
+    h.call("PUT", &format!("/entries/{id}/icon"), Some(json!({ "icon": "tint:blue" }))).await;
+    let png = "data:image/png;base64,iVBORw0KGgo=";
+    let (_, v) = h.call("PUT", &format!("/entries/{id}/icon"), Some(json!({ "icon": png, "onlyIfEmpty": true }))).await;
+    assert_eq!(v["icon"], "tint:blue");
+}
+
+/// A sync app replacing the file with a *different* vault while unlocked: the old session must not
+/// write into it (rows under the wrong key made the new vault's list fail to load).
+#[tokio::test(flavor = "multi_thread")]
+async fn swapped_vault_refuses_writes_and_locks() {
+    let dir = tempfile::tempdir().unwrap();
+    let main_file = dir.path().join("Keys.sqlite");
+    let mut a = H { app: App::new(Storage::open(None, main_file.clone()), 5999), token: String::new() };
+    a.setup().await;
+    a.login("Mine", "a.test", "pw").await;
+
+    let other_file = dir.path().join("other.sqlite");
+    let mut b = H { app: App::new(Storage::open(None, other_file.clone()), 5999), token: String::new() };
+    b.setup().await;
+    b.login("Theirs", "b.test", "pw").await;
+    drop(b);
+    std::fs::rename(&other_file, &main_file).unwrap(); // what a sync app does
+
+    let (s, v) = a.call("POST", "/entries", Some(json!({ "type": "login", "title": "Late", "password": "x" }))).await;
+    assert_eq!((s, v["code"].as_str()), (StatusCode::UNAUTHORIZED, Some("LOCKED")));
+    let (s, _) = a.call("GET", "/entries", None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "the old session is locked");
+    let (s, v) = a.call("POST", "/unlock", Some(json!({ "password": PW }))).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, list) = a.call("GET", "/entries", None).await;
+    let titles: Vec<&str> = list.as_array().unwrap().iter().filter_map(|e| e["title"].as_str()).collect();
+    assert_eq!(titles, vec!["Theirs"], "nothing was written under the old key");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pairings_are_not_read_from_the_vault_file() {
+    let mut h = H::new();
+    h.setup().await;
+    // A pairing planted in the (shared) vault file grants nothing.
+    let token = "planted-token";
+    let hash = keys_core::extension::hash_token(token);
+    {
+        let mut g = h.app.lock();
+        g.storage.store().unwrap().set_meta("browser_pairings", &json!([{ "id": "x", "name": "Evil", "createdAt": 1, "lastUsedAt": null, "hash": hash }]).to_string()).unwrap();
+    }
+    let (s, v) = h.ext("GET", "/status", Some(token), None, None).await;
+    assert_eq!((s, v["code"].as_str()), (StatusCode::UNAUTHORIZED, Some("NOT_PAIRED")));
+}

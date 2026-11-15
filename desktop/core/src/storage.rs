@@ -189,7 +189,10 @@ impl Storage {
 
     pub fn move_to(&mut self, raw: Option<&str>) -> Result<StorageInfo> {
         let file = self.new_file_path(raw)?;
-        let copied = self.store().and_then(|s| s.copy_to(&file)).and_then(|_| inspect_database(&file).map(|_| ()).map_err(|e| HttpError::new(400, e)));
+        // VACUUM INTO refuses an existing file, so a failed copy never touches someone else's file;
+        // only a copy this made (and that then failed its check) is removed.
+        self.store()?.copy_to(&file).map_err(|_| HttpError::new(400, "Keys couldn’t write the copy there. Check the folder and free space"))?;
+        let copied = inspect_database(&file).map(|_| ()).map_err(|e| HttpError::new(400, e));
         if let Err(err) = copied {
             let _ = fs::remove_file(&file);
             return Err(if err.status == 400 || err.status == 503 { err } else { HttpError::new(400, "Keys couldn’t write the copy there. Check the folder and free space") });

@@ -61,7 +61,9 @@ pub fn credential(store: &mut Store) -> Result<Value> {
 
 pub fn lockout_until(store: &mut Store) -> Result<Option<i64>> {
     let until = store.get_meta("lockout_until")?.and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0) as i64;
-    Ok((until > now_ms()).then_some(until))
+    let now = now_ms();
+    // Never longer than the longest real lockout: a tampered file can't lock you out for good.
+    Ok((until > now).then_some(until.min(now + MAX_LOCKOUT_MS)))
 }
 
 /// What a password check needs from the file: the KDF settings and the wrapped vault key.
@@ -87,7 +89,7 @@ pub fn unwrap_dek_with(kek: &K, wrapped: &[u8], aad: &str) -> Option<Key> {
 }
 
 pub fn record_failure(store: &mut Store) -> Result<()> {
-    let attempts = store.get_meta("failed_attempts")?.and_then(|s| s.parse::<i64>().ok()).unwrap_or(0) + 1;
+    let attempts = store.get_meta("failed_attempts")?.and_then(|s| s.parse::<i64>().ok()).unwrap_or(0).clamp(0, 1000) + 1;
     store.set_meta("failed_attempts", &attempts.to_string())?;
     if attempts >= FREE_ATTEMPTS {
         let delay = MAX_LOCKOUT_MS.min(5000 * 2i64.saturating_pow((attempts - FREE_ATTEMPTS).min(20) as u32));
@@ -191,7 +193,7 @@ fn strip_ids(mut m: Map<String, Value>) -> Map<String, Value> {
 }
 
 /// What the list shows: no password, notes or history.
-fn summary(e: &Map<String, Value>) -> Value {
+pub fn summary(e: &Map<String, Value>) -> Value {
     json!({
         "id": e["id"], "type": e["type"], "title": e["title"], "username": e["username"], "url": e["url"],
         "categoryId": e.get("categoryId").cloned().unwrap_or(Value::Null), "favorite": e["favorite"], "icon": e["icon"],
@@ -201,8 +203,19 @@ fn summary(e: &Map<String, Value>) -> Value {
 }
 
 /// Live items only: Recently deleted is left out everywhere except the bin itself.
+/// A row this key can't open (damaged, or written by another vault) is skipped and logged, so one
+/// bad row never hides the rest of the vault.
+fn readable<T>(row: &Row, read: std::result::Result<T, HttpError>) -> Option<T> {
+    read.map_err(|_| log::warn!("Skipping a row that couldn’t be decrypted ({})", row.id)).ok()
+}
+
 pub fn list_entries(store: &mut Store, key: &K) -> Result<Vec<Map<String, Value>>> {
-    store.all(Table::Entries)?.iter().filter(|r| r.deleted_at.is_none()).map(|r| read_entry(key, r)).collect()
+    Ok(entries_from(&store.all(Table::Entries)?, key))
+}
+
+/// Live items from rows read earlier: lets the slow decrypting happen away from the app lock.
+pub fn entries_from(rows: &[Row], key: &K) -> Vec<Map<String, Value>> {
+    rows.iter().filter(|r| r.deleted_at.is_none()).filter_map(|r| readable(r, read_entry(key, r))).collect()
 }
 
 pub fn list_summaries(store: &mut Store, key: &K) -> Result<Vec<Value>> {
@@ -212,7 +225,8 @@ pub fn list_summaries(store: &mut Store, key: &K) -> Result<Vec<Value>> {
 pub fn list_trash(store: &mut Store, key: &K) -> Result<Vec<Value>> {
     let mut out = Vec::new();
     for r in store.all(Table::Entries)?.iter().filter(|r| r.deleted_at.is_some()) {
-        let mut s = summary(&read_entry(key, r)?);
+        let Some(e) = readable(r, read_entry(key, r)) else { continue };
+        let mut s = summary(&e);
         s["deletedAt"] = r.deleted_at.into();
         out.push(s);
     }
@@ -367,14 +381,14 @@ fn insert_category(store: &mut Store, key: &K, name: &str, created_at: i64) -> R
 }
 
 pub fn list_categories(store: &mut Store, key: &K) -> Result<Vec<Value>> {
-    store
+    Ok(store
         .all(Table::Categories)?
         .iter()
-        .map(|r| {
-            let d = crypto::decrypt_json(key, &r.blob, &category_aad(&r.id)).map_err(|_| HttpError::new(500, "A category couldn’t be decrypted"))?;
-            Ok(json!({ "id": r.id, "name": d["name"], "color": d.get("color").cloned().unwrap_or(Value::Null), "createdAt": r.created_at }))
+        .filter_map(|r| {
+            let d = readable(r, crypto::decrypt_json(key, &r.blob, &category_aad(&r.id)).map_err(|_| HttpError::new(500, "")))?;
+            Some(json!({ "id": r.id, "name": d["name"], "color": d.get("color").cloned().unwrap_or(Value::Null), "createdAt": r.created_at }))
         })
-        .collect()
+        .collect())
 }
 
 fn same_name(c: &Value, name: &str) -> bool {

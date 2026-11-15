@@ -310,7 +310,7 @@ function EditorForm({
         codes: keep(t === 'recovery', form.codes.split('\n').map((c) => c.trim()).filter(Boolean).join('\n')),
         customFields: form.customFields.filter((f) => f.label.trim() || f.value),
       };
-      onSaved(entry ? await api.updateEntry(entry.id, cleaned) : await api.createEntry(cleaned));
+      onSaved(entry ? await api.updateEntry(entry.id, cleaned, entry.updatedAt) : await api.createEntry(cleaned));
     } catch (err) {
       setError(errorMessage(err));
       setSaving(false);

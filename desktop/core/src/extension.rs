@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-pub const PAIRINGS_META: &str = "browser_pairings";
 pub const PAIR_TTL_MS: i64 = 3 * 60_000;
 pub const MAX_PENDING: usize = 5;
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I/L

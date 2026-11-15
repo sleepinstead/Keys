@@ -316,6 +316,12 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
 
   api.put('/entries/:id', json, (req, res) => {
     const key = keyFor(req);
+    // The editor says which version it started from, so a save never silently undoes a change
+    // that arrived meanwhile (from another computer, or the browser extension).
+    const base = req.body?.baseUpdatedAt;
+    if (typeof base === 'number' && vault.getEntry(key, req.params.id).updatedAt !== base) {
+      throw new HttpError(409, 'This item changed elsewhere after you opened it. Close it and open it again to see the latest, then make your change.', 'CHANGED');
+    }
     res.json(vault.updateEntry(key, req.params.id, sanitizeEntryInput(req.body)));
   });
 
@@ -395,7 +401,8 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
     const key = keyFor(req);
     const icon = sanitizeEntryInput({ type: 'login', title: 'x', icon: req.body?.icon }).icon;
     vault.getEntry(key, req.params.id);
-    vault.patchEntryData(key, req.params.id, { icon });
+    // The background website-icon fetch only fills a missing icon, never one the person chose meanwhile.
+    vault.patchEntryData(key, req.params.id, { icon }, req.body?.onlyIfEmpty === true ? (d) => !d.icon : undefined);
     res.json(vault.getEntry(key, req.params.id));
   });
 
