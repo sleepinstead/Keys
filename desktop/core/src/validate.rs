@@ -1,5 +1,4 @@
-//! Input checks, mirroring server/validate.ts, server/pin.ts, server/strength.ts and
-//! shared/credential.ts. Lengths count UTF-16 units, like JavaScript's `.length`.
+//! Input checks, mirroring shared/credential.ts. Lengths count UTF-16 units, like JavaScript's `.length`.
 
 use serde_json::{Map, Value, json};
 

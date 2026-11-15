@@ -1,5 +1,5 @@
-//! Which SQLite file Keys uses (server/storage.ts). Only the file's path is remembered, in a
-//! pointer file in the per-user config folder; the Node app and this app share it.
+//! Which SQLite file Keys uses. Only the file's path is remembered, in a
+//! pointer file in the per-user config folder.
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::error::{HttpError, Result};
 use crate::store::{Store, inspect_database};
 
-/// ~/Library/Application Support/Keys on macOS (the same folder the Node server uses).
+/// ~/Library/Application Support/Keys on macOS.
 pub fn config_dir() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
     if cfg!(target_os = "macos") {

@@ -1,9 +1,12 @@
-// Runs the API (restarting on changes) and Vite as one process. Output is passed straight through,
-// so the terminal shows only Vite's own banner, with no prefixes.
+// Runs the Rust Keys server (the same core the Mac app ships) and Vite as one process.
+// Restart this after changing desktop/core; the UI reloads on its own.
 import { spawn } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
 
+const env = { ...process.env, PATH: `${path.join(os.homedir(), '.cargo/bin')}:${process.env.PATH}` };
 const children = [
-  spawn(process.execPath, ['--watch-path=server', '--watch-path=shared', '--watch-preserve-output', 'server/index.ts'], { stdio: 'inherit' }),
+  spawn('cargo', ['run', '-q', '-p', 'keys-core', '--bin', 'keys-server'], { stdio: 'inherit', cwd: 'desktop', env }),
   spawn(process.execPath, ['node_modules/vite/bin/vite.js'], { stdio: 'inherit' }),
 ];
 

@@ -1,4 +1,4 @@
-//! Byte-for-byte compatible with server/crypto.ts: Argon2id (NFKC password) and AES-256-GCM
+//! Byte-for-byte compatible with phone/vault.ts: Argon2id (NFKC password) and AES-256-GCM
 //! with the layout version(1) | nonce(12) | tag(16) | ciphertext.
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
@@ -111,7 +111,7 @@ pub fn random_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// 32 random bytes, base64url (same as the Node server's session tokens).
+/// 32 random bytes, base64url.
 pub fn random_token() -> String {
     B64URL.encode(random_bytes::<32>())
 }

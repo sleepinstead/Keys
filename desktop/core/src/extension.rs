@@ -1,4 +1,4 @@
-//! Rules for the browser extension (server/extension.ts): where a login may fill, pairing codes,
+//! Rules for the browser extension: where a login may fill, pairing codes,
 //! and stored pairings (only a SHA-256 of each token, in the database, bound to the extension).
 
 use base64::Engine;

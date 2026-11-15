@@ -1,6 +1,5 @@
-//! The local HTTP API the React app talks to: same routes, JSON shapes, guards and headers as
-//! the Node server (server/routes.ts, server/app.ts, server/security.ts), so the app and its
-//! browser extension work unchanged.
+//! The local HTTP API the React app and the browser extension talk to: routes, JSON shapes,
+//! guards and security headers.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 

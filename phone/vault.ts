@@ -1,10 +1,10 @@
-// Reads a Keys.sqlite file and decrypts it in the browser, exactly as server/vault.ts does.
+// Reads a Keys.sqlite file and decrypts it in the browser, exactly as the Rust core does (desktop/core/src/vault.rs).
 // Read-only: nothing here ever writes to the file.
 import { argon2id } from 'hash-wasm';
 import type { Database, SqlJsStatic } from 'sql.js';
 import type { Credential, EntryData } from '../shared/types.ts';
 
-// Must match server/vault.ts and server/crypto.ts byte for byte.
+// Must match desktop/core/src/vault.rs and crypto.rs byte for byte.
 const DEK_AAD = 'vaultx:dek:v1';
 const entryAad = (id: string) => `vaultx:entry:${id}`;
 const categoryAad = (id: string) => `vaultx:category:${id}`;

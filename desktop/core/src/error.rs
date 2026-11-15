@@ -1,5 +1,5 @@
 //! The API's errors: a status, a readable message, and an optional code the app keys off
-//! (`LOCKED`, `BAD_PASSWORD`…). Same shape as the Node server's `HttpError`.
+//! (`LOCKED`, `BAD_PASSWORD`…). The UI keys off `code`.
 
 use axum::Json;
 use axum::http::StatusCode;

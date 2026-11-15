@@ -1,4 +1,4 @@
-//! One SQLite file, same schema and rules as server/db.ts. Only ciphertext, ids, timestamps and
+//! One SQLite file, its schema and rules. Only ciphertext, ids, timestamps and
 //! non-secret settings reach this layer.
 
 use std::fs;

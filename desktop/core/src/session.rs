@@ -1,5 +1,5 @@
-//! The unlocked vault key, held in memory for one session (server/session.ts), and the
-//! in-memory PIN quick unlock (server/pin.ts).
+//! The unlocked vault key, held in memory for one session, and the
+//! in-memory PIN quick unlock.
 
 use crate::crypto::{self, KdfParams, Key};
 

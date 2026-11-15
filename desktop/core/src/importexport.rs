@@ -1,5 +1,4 @@
-//! Import and export (server/importExport.ts). Encrypted backups use the same format as the Node
-//! app, so a backup from either opens in the other.
+//! Import and export. The encrypted backup format must stay stable: older backups have to keep opening.
 
 use serde_json::{Map, Value, json};
 

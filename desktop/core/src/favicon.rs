@@ -1,4 +1,4 @@
-//! Fetches a website's own icon, only when asked (server/favicon.ts). The request goes straight
+//! Fetches a website's own icon, only when asked. The request goes straight
 //! to that site, and private, loopback and link-local addresses are refused, both when checking
 //! the name and when connecting (a DNS resolver that drops them), so this can't probe the local
 //! network or be tricked by DNS rebinding. Redirects are followed by hand, each hop checked.

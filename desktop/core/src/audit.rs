@@ -1,4 +1,4 @@
-//! The security audit and breach checks (server/audit.ts): strength, reuse, age, exact
+//! The security audit and breach checks: strength, reuse, age, exact
 //! duplicates, and Have I Been Pwned lookups that only send a 5-character hash prefix.
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ fn s<'a>(e: &'a Map<String, Value>, k: &str) -> &'a str {
     e.get(k).and_then(Value::as_str).unwrap_or("")
 }
 
-/// A URL's host without "www.", like `new URL(...).hostname` in the Node server.
+/// A URL's host without "www.", like `new URL(...).hostname`.
 pub fn host_of(url: &str) -> String {
     let text = if url.contains("://") { url.to_string() } else { format!("https://{url}") };
     url::Url::parse(&text).ok().and_then(|u| u.host_str().map(|h| h.strip_prefix("www.").unwrap_or(h).to_string())).unwrap_or_default()

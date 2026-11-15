@@ -1,5 +1,5 @@
-//! Keys in Rust: the same vault file, encryption and local API as the Node server, so the
-//! React app, the browser extension and the iPhone app all keep working with it.
+//! Keys' core: the vault file, encryption and local API used by the React app, the browser
+//! extension, and (file format) the iPhone app.
 
 pub mod api;
 pub mod audit;

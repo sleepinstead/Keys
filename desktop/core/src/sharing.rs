@@ -1,8 +1,8 @@
-//! One database file used from several computers through a synced folder (server/sharing.ts).
+//! One database file used from several computers through a synced folder.
 //!
 //! Presence: each computer with Keys open keeps a small marker beside the database
 //! (".Keys.sqlite.open-<device>.json": a name and a timestamp, nothing secret), refreshed every
-//! minute and removed on exit, so the others can say "Also open on …". Same files as the Node app.
+//! minute and removed on exit, so the others can say "Also open on …".
 //!
 //! Conflict copies: rows are encrypted with the same vault key everywhere, so a sync app's copy of
 //! the same vault merges row by row without decrypting anything; the newest version of each wins.
@@ -31,7 +31,7 @@ fn platform() -> &'static str {
     }
 }
 
-/// This computer's id, kept in the (unsynced) config folder; shared with the Node app.
+/// This computer's id, kept in the (unsynced) config folder.
 fn device_id() -> String {
     let file = config_dir().join("device.json");
     if let Some(id) = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["id"].as_str().map(str::to_string))

@@ -20,24 +20,16 @@ I built it for people who want a private, simple place for their passwords witho
 
 ## Built with
 
-- React, TypeScript and Vite for the app
-- Node.js and Express for the local server
-- SQLite (built into Node) for storage
+- Rust (Tauri, axum) for the Mac app and its local server
+- React, TypeScript and Vite for the interface
+- SQLite for storage
 - Argon2id and AES-256-GCM for encryption
 
 ## Getting started
 
-You need **Node.js 24.7 or newer**.
+Download **Keys for Mac** from [Releases](https://github.com/sleepinstead/Keys/releases), unzip it and drag **Keys.app** to Applications. The first time, Keys walks you through a short setup where you choose how to unlock it. It updates itself.
 
-```bash
-npm install
-npm run build
-npm start
-```
-
-Open http://localhost:5174. The first time, Keys walks you through a short setup where you choose how to unlock it.
-
-To work on the code with live reload, run `npm run dev` and open http://localhost:5173. Set `KEYS_PORT` to use a different port.
+To work on the code you need Node.js 24.7+ and Rust. Run `npm install`, then `npm run dev` (the Rust server plus live-reloading UI) and open http://localhost:5173.
 
 ## Where your data lives
 
@@ -65,7 +57,7 @@ A login only fills on its own website, and only after you click it. The extensio
 - Your master password unlocks a random vault key, and that key encrypts every item, titles and usernames included.
 - The key lives only in memory while Keys is unlocked. Keys locks itself after 5 minutes idle by default.
 - Wrong guesses lock you out for longer each time.
-- The server only answers your own computer.
+- Keys' built-in server only answers your own computer.
 
 A few things to know:
 
@@ -76,10 +68,11 @@ A few things to know:
 ## Project layout
 
 ```
-server/      local API, encryption and storage
-src/         React app
-shared/      code used by both sides
+desktop/     Rust: keys-core (API, encryption, storage) and the Mac app
+src/         React interface
+shared/      types and the password generator
 extension/   browser extension
+phone/       read-only iPhone web app
 ```
 
 Third-party fonts, word lists and libraries are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

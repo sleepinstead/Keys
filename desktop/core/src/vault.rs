@@ -1,4 +1,4 @@
-//! The key hierarchy and encrypted records (server/vault.ts):
+//! The key hierarchy and encrypted records:
 //!
 //!   master credential --Argon2id--> KEK --AES-GCM unwrap--> DEK (random 256-bit vault key)
 //!   DEK --AES-GCM--> every entry and category, each bound to its row id via AAD.
