@@ -1,6 +1,7 @@
 {
   "name": "keys",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "description": "Offline-first, locally encrypted password manager",
   "type": "module",

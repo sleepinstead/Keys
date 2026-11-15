@@ -76,3 +76,18 @@ phone/       read-only iPhone web app
 ```
 
 Third-party fonts, word lists and libraries are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Code signing policy
+
+Free code signing for the Windows installer is provided by [SignPath.io](https://about.signpath.io), with a certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [sleepinstead](https://github.com/sleepinstead)
+- Approvers: [sleepinstead](https://github.com/sleepinstead)
+
+Only files built by this repository's GitHub workflow from its own source are signed, and every signed release is approved by hand.
+
+**Privacy:** Keys sends nothing about you or your vault to other networked systems. It only connects out for: update checks (GitHub; on by default, can be turned off in Settings), breach checks (Have I Been Pwned, which only ever receives the first 5 characters of a password's SHA-1 hash), and fetching a website's icon (that website).
+
+## License
+
+[MIT](LICENSE)
