@@ -6146,3 +6146,12 @@ button.sync-note {
   background: var(--text);
   color: var(--bg);
 }
+
+/* Very long lists render only what's on screen, so each row has a fixed height there. */
+.entry-list.is-virtual > li {
+  height: 56px;
+  content-visibility: visible;
+}
+.entry-list.is-virtual > li.list-letter {
+  height: 31px;
+}

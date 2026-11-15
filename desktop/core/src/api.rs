@@ -283,7 +283,29 @@ impl Inner {
 /// One Argon2 derivation at a time: each takes 128–512 MB, so several at once could exhaust memory.
 static KDF_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
-async fn derive(password: String, kdf: KdfParams) -> Result<Key> {
+/// A password, PIN or passphrase someone typed: wiped from memory as soon as it's dropped.
+type Secret = zeroize::Zeroizing<String>;
+
+fn secret(v: Option<&Value>, name: &str, max: usize) -> Result<Secret> {
+    require_string(v, name, max).map(Secret::new)
+}
+
+fn secret_opt(v: Option<&Value>, max: usize) -> Secret {
+    Secret::new(opt_string(v, max))
+}
+
+/// Wipes every string in a request body once it's been handled (passwords travel in them).
+fn wipe(v: &mut Value) {
+    use zeroize::Zeroize;
+    match v {
+        Value::String(s) => s.zeroize(),
+        Value::Array(a) => a.iter_mut().for_each(wipe),
+        Value::Object(m) => m.values_mut().for_each(wipe),
+        _ => {}
+    }
+}
+
+async fn derive(password: Secret, kdf: KdfParams) -> Result<Key> {
     let _slot = KDF_SLOT.acquire().await.map_err(|_| HttpError::new(500, "Internal error"))?;
     tokio::task::spawn_blocking(move || crypto::derive_key(&password, &kdf)).await.map_err(|_| HttpError::new(500, "Internal error"))?.map_err(|e| HttpError::new(400, e))
 }
@@ -323,7 +345,7 @@ async fn check_password(app: &App, password: &str) -> Result<Option<Key>> {
         let material = vault::unlock_material(g.store()?)?;
         (material, Busy::set(app, &mut g, |i| &mut i.unlocking))
     };
-    let kek = derive(password.to_string(), kdf).await;
+    let kek = derive(Secret::new(password.to_string()), kdf).await;
     drop(busy); // before taking the lock again
     let mut g = app.lock();
     let kek = kek?;
@@ -357,7 +379,7 @@ async fn require_current(app: &App, body: &Value) -> Result<()> {
         }
         credential_label(&vault::credential(g.store()?)?)
     };
-    let current = opt_string(body.get("current"), 1024);
+    let current = secret_opt(body.get("current"), 1024);
     if current.is_empty() {
         return Err(HttpError::new(400, format!("Enter your {label} to change the database")));
     }
@@ -409,7 +431,7 @@ async fn rearm_pin(app: &App, dek: &Key) -> Result<()> {
     let pin = {
         let mut g = app.lock();
         let store = g.store()?;
-        vault::read_pin(store, dek)?
+        vault::read_pin(store, dek)?.map(Secret::new)
     };
     if let Some(pin) = pin {
         let kdf = crypto::new_kdf_params(false);
@@ -517,7 +539,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
 
         // ------------------------------------------------------------ setup / unlock
         ("POST", ["setup"]) => {
-            let password = require_string(body.get("password"), "Master password", 1024)?;
+            let password = secret(body.get("password"), "Master password", 1024)?;
             let credential = check_credential(&password, body.get("type"))?;
             if vault::is_initialized(app.lock().store()?)? {
                 return Err(HttpError::new(409, "Setup is already done"));
@@ -535,7 +557,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             ok(g.opened(dek)?)
         }
         ("POST", ["unlock"]) => {
-            let password = require_string(body.get("password"), "Master password", 1024)?;
+            let password = secret(body.get("password"), "Master password", 1024)?;
             let label = {
                 let mut g = app.lock();
                 if !vault::is_initialized(g.store()?)? {
@@ -548,7 +570,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             ok(app.lock().opened(dek)?)
         }
         ("POST", ["unlock", "pin"]) => {
-            let pin = opt_string(body.get("pin"), 16);
+            let pin = secret_opt(body.get("pin"), 16);
             let (kdf, busy) = {
                 let mut g = app.lock();
                 if !vault::is_initialized(g.store()?)? {
@@ -584,8 +606,8 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
                     return Err(HttpError::coded(409, "You already unlock with a PIN.", "PIN_VAULT"));
                 }
             }
-            let pin = validate::validate_pin(body.get("pin"), &[4, 6])?;
-            let master = require_string(body.get("masterPassword"), "Master password", 1024)?;
+            let pin = Secret::new(validate::validate_pin(body.get("pin"), &[4, 6])?);
+            let master = secret(body.get("masterPassword"), "Master password", 1024)?;
             if check_password(app, &master).await?.is_none() {
                 return Err(HttpError::coded(401, "Incorrect master password", "BAD_PASSWORD"));
             }
@@ -670,7 +692,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
 
         // ------------------------------------------------------------ tools
         ("POST", ["tools", "strength"]) => {
-            let password = opt_string(body.get("password"), 1024);
+            let password = secret_opt(body.get("password"), 1024);
             let inputs: Vec<String> =
                 body.get("userInputs").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| opt_string(Some(&Value::from(s)), 200)).collect()).unwrap_or_default();
             ok(validate::check_strength(&password, &inputs))
@@ -778,7 +800,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
                 g.key_for(token, true)?;
                 credential_label(&vault::credential(g.store()?)?)
             };
-            let current = opt_string(body.get("current"), 1024);
+            let current = secret_opt(body.get("current"), 1024);
             if current.is_empty() {
                 return Err(HttpError::new(400, format!("Enter your {label} to delete permanently")));
             }
@@ -843,8 +865,8 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         }),
         ("POST", ["account", "change-password"]) => {
             app.lock().key_for(token, true)?;
-            let current = require_string(body.get("current"), "Current password", 1024)?;
-            let next = require_string(body.get("next"), "New password", 1024)?;
+            let current = secret(body.get("current"), "Current password", 1024)?;
+            let next = secret(body.get("next"), "New password", 1024)?;
             let credential = check_credential(&next, body.get("type"))?;
             if current == next {
                 return Err(HttpError::new(400, "The new one must be different"));
@@ -930,11 +952,11 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             if !["encrypted", "json", "csv"].contains(&format.as_str()) {
                 return Err(HttpError::new(400, "Unknown export format"));
             }
-            let master = require_string(body.get("masterPassword"), "Master password", 1024)?;
+            let master = secret(body.get("masterPassword"), "Master password", 1024)?;
             if check_password(app, &master).await?.is_none() {
                 return Err(HttpError::coded(401, "Incorrect master password", "BAD_PASSWORD"));
             }
-            let given = opt_string(body.get("exportPassword"), 1024);
+            let given = secret_opt(body.get("exportPassword"), 1024);
             let mut export_key = None;
             if format == "encrypted" {
                 if given.is_empty() && short {
@@ -956,7 +978,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         ("POST", ["import"]) => {
             app.lock().key_for(token, true)?;
             let content = require_string(body.get("content"), "File content", 90_000_000)?;
-            let password = body.get("password").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
+            let password = body.get("password").and_then(Value::as_str).filter(|p| !p.is_empty()).map(|p| Secret::new(p.to_string()));
             let (source, data) = match importexport::parse_import(&content, password.is_some())? {
                 importexport::Parsed::Ready { source, data } => (source, data),
                 importexport::Parsed::Encrypted { kdf, blob } => {
@@ -1056,7 +1078,11 @@ async fn read_json(body: Body, limit: usize) -> std::result::Result<Value, Box<R
     if bytes.is_empty() {
         return Ok(Value::Object(Map::new()));
     }
-    serde_json::from_slice(&bytes).map_err(|_| Box::new(json_response(400, json!({ "error": "Malformed JSON" }))))
+    // The raw body holds any password in plain text: wipe it once it's parsed.
+    let mut raw: Vec<u8> = bytes.into();
+    let parsed = serde_json::from_slice(&raw);
+    zeroize::Zeroize::zeroize(&mut raw);
+    parsed.map_err(|_| Box::new(json_response(400, json!({ "error": "Malformed JSON" }))))
 }
 
 fn respond(out: Result<(u16, Value)>) -> Response {
@@ -1078,12 +1104,13 @@ async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, header
         if method == Method::OPTIONS || headers.get("x-keys-extension").and_then(|v| v.to_str().ok()) != Some("1") || origin.is_some_and(|o| !ext::is_extension_origin(o)) {
             return json_response(403, json!({ "error": "Request blocked", "code": "FORBIDDEN" }));
         }
-        let value = match read_json(body, 64 * 1024).await {
+        let mut value = match read_json(body, 64 * 1024).await {
             Ok(v) => v,
             Err(res) => return *res,
         };
         let token = headers.get("x-keys-extension-token").and_then(|v| v.to_str().ok());
         let out = extension_route(app, method, rest, query, origin, token, &value).await;
+        wipe(&mut value);
         app.lock().after();
         return respond(out);
     }
@@ -1104,11 +1131,12 @@ async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, header
         return respond(Err(e));
     }
     let limit = if path == "import" { 100 * 1024 * 1024 } else { 1024 * 1024 };
-    let value = match read_json(body, limit).await {
+    let mut value = match read_json(body, limit).await {
         Ok(v) => v,
         Err(res) => return *res,
     };
     let out = route(app, method, path, token, &value).await;
+    wipe(&mut value);
     app.lock().after();
     respond(out)
 }
@@ -1335,7 +1363,7 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
                 }
                 credential_label(&vault::credential(g.store()?)?)
             };
-            let secret = require_string(body.get("secret"), "Password", 1024)?;
+            let secret = secret(body.get("secret"), "Password", 1024)?;
             let dek = check_password(app, &secret).await?.ok_or_else(|| HttpError::coded(401, format!("Incorrect {label}"), "BAD_PASSWORD"))?;
             rearm_pin(app, &dek).await?;
             let mut g = app.lock();

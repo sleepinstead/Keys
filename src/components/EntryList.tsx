@@ -1,4 +1,4 @@
-import { forwardRef, Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { ArrowDownAZ, AtSign, Check, Folder, ListChecks, ChevronDown, Clock3, ExternalLink, KeyRound, Pencil, Plus, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
@@ -10,6 +10,13 @@ import { Button, ContextMenu, EmptyState, IconButton, Kbd, Menu, Monogram, Toolt
 import type { MenuItem } from './ui.tsx';
 
 export type Sort = 'name' | 'recent';
+
+/** Past this many rows only the visible part of the list is put on the page (very large vaults). */
+const VIRTUAL_FROM = 300;
+const ROW_H = 56;
+const LETTER_H = 31;
+const OVERSCAN = 8;
+type Row = { kind: 'letter'; letter: string; key: string } | { kind: 'entry'; e: EntrySummary; key: string };
 
 interface Props {
   title: string;
@@ -186,6 +193,59 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
     return out;
   }, [entries, sort, query]);
 
+  // Very large lists: only rows near the visible part are rendered, with spacers for the rest.
+  const rows = useMemo<Row[]>(() => groups.flatMap((g, i) => [...(g.letter ? [{ kind: 'letter' as const, letter: g.letter, key: `${i}-${g.letter}` }] : []), ...g.items.map((e) => ({ kind: 'entry' as const, e, key: e.id }))]), [groups]);
+  const virtual = rows.length > VIRTUAL_FROM;
+  const offsets = useMemo(() => {
+    const out = new Array<number>(rows.length + 1);
+    out[0] = 0;
+    rows.forEach((r, i) => (out[i + 1] = out[i]! + (r.kind === 'letter' ? LETTER_H : ROW_H)));
+    return out;
+  }, [rows]);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ top: 0, height: 800 });
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || !virtual) return;
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      setViewport({ top: el.scrollTop, height: el.clientHeight });
+    };
+    const onScroll = () => (frame ||= requestAnimationFrame(read));
+    read();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const size = new ResizeObserver(onScroll);
+    size.observe(el);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      size.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [virtual]);
+  const firstAt = (y: number) => {
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[mid + 1]! <= y) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const start = virtual ? Math.max(0, firstAt(viewport.top) - OVERSCAN) : 0;
+  const end = virtual ? Math.min(rows.length, firstAt(viewport.top + viewport.height) + OVERSCAN + 1) : rows.length;
+  // Arrow keys can select a row that isn't on the page yet: scroll it into view.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!virtual || !el || !selectedId) return;
+    const i = rows.findIndex((r) => r.kind === 'entry' && r.e.id === selectedId);
+    if (i < 0) return;
+    const [top, bottom] = [offsets[i]!, offsets[i + 1]!];
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
+  }, [selectedId, virtual, rows, offsets]);
+
   // Arrow keys in the filter box move the selection.
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -199,6 +259,31 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
     const next = e.key === 'ArrowDown' ? Math.min(entries.length - 1, i + 1) : Math.max(0, i - 1);
     if (entries[next]) onSelect(entries[next].id);
   };
+
+  const renderRow = (e: EntrySummary) => (
+    <button
+      type="button"
+      className="entry-row"
+      aria-current={selectedId === e.id ? 'true' : undefined}
+      aria-pressed={inSelection ? checked.has(e.id) : undefined}
+      data-menu-open={menu?.entry.id === e.id || undefined}
+      onClick={(ev) => onRowClick(ev, e)}
+      onContextMenu={(ev) => openMenu(ev, e)}
+    >
+      {inSelection && (
+        <span className="entry-check" aria-hidden="true">
+          {checked.has(e.id) && <Check size={12} strokeWidth={3} />}
+        </span>
+      )}
+      {/* Only logins get a picture; other kinds are plain text rows. */}
+      {!hideIcons[e.type] && <Monogram title={e.title} type={e.type} icon={e.icon} />}
+      <span className="entry-row-text">
+        <span className="entry-row-title">{e.title}</span>
+        <span className="entry-row-sub">{subtitle(e)}</span>
+      </span>
+      {e.favorite && <Star size={13} className="entry-row-fav" aria-label="Favorite" />}
+    </button>
+  );
 
   return (
     <section className="list-pane" aria-label={title}>
@@ -270,7 +355,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
         </div>
       </header>
 
-      <div className="list-scroll">
+      <div className="list-scroll" ref={scroller}>
         {entries.length === 0 ? (
           totalCount === 0 ? (
             <EmptyState icon={<KeyRound size={20} />} title="Nothing saved yet">
@@ -294,42 +379,18 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
             </EmptyState>
           )
         ) : (
-          <ul className="entry-list">
-            {groups.map((g, i) => (
-              <Fragment key={`${i}-${g.letter}`}>
-                {g.letter && (
-                  <li className="list-letter" aria-hidden="true">
-                    {g.letter}
-                  </li>
-                )}
-                {g.items.map((e) => (
-                  <li key={e.id}>
-                    <button
-                      type="button"
-                      className="entry-row"
-                      aria-current={selectedId === e.id ? 'true' : undefined}
-                      aria-pressed={inSelection ? checked.has(e.id) : undefined}
-                      data-menu-open={menu?.entry.id === e.id || undefined}
-                      onClick={(ev) => onRowClick(ev, e)}
-                      onContextMenu={(ev) => openMenu(ev, e)}
-                    >
-                      {inSelection && (
-                        <span className="entry-check" aria-hidden="true">
-                          {checked.has(e.id) && <Check size={12} strokeWidth={3} />}
-                        </span>
-                      )}
-                      {/* Only logins get a picture; other kinds are plain text rows. */}
-                      {!hideIcons[e.type] && <Monogram title={e.title} type={e.type} icon={e.icon} />}
-                      <span className="entry-row-text">
-                        <span className="entry-row-title">{e.title}</span>
-                        <span className="entry-row-sub">{subtitle(e)}</span>
-                      </span>
-                      {e.favorite && <Star size={13} className="entry-row-fav" aria-label="Favorite" />}
-                    </button>
-                  </li>
-                ))}
-              </Fragment>
-            ))}
+          <ul className={`entry-list${virtual ? ' is-virtual' : ''}`}>
+            {virtual && <li aria-hidden="true" style={{ height: offsets[start] }} />}
+            {rows.slice(start, end).map((r) =>
+              r.kind === 'letter' ? (
+                <li key={r.key} className="list-letter" aria-hidden="true">
+                  {r.letter}
+                </li>
+              ) : (
+                <li key={r.key}>{renderRow(r.e)}</li>
+              ),
+            )}
+            {virtual && <li aria-hidden="true" style={{ height: offsets[rows.length]! - offsets[end]! }} />}
           </ul>
         )}
       </div>

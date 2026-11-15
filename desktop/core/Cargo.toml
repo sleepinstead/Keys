@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 aes-gcm = { version = "0.10", features = ["zeroize"] }
-argon2 = { version = "0.5", features = ["zeroize"] }
+argon2 = { version = "0.6", features = ["zeroize", "parallel"] }
 axum = "0.8"
 base64 = "0.22"
 rand = "0.8"
