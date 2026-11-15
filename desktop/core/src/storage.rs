@@ -253,10 +253,10 @@ impl Storage {
     }
 
     fn switch_to(&mut self, file: PathBuf) -> Result<()> {
-        if file == self.default_file {
-            if let Some(dir) = file.parent() {
-                let _ = fs::create_dir_all(dir);
-            }
+        if file == self.default_file
+            && let Some(dir) = file.parent()
+        {
+            let _ = fs::create_dir_all(dir);
         }
         let next = Store::open(&file)?; // fails before anything changes if it can't be opened
         // Remembered first: if that fails, keep using the current file.

@@ -53,9 +53,8 @@ impl reqwest::dns::Resolve for PublicOnly {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let host = name.as_str().to_string();
         Box::pin(async move {
-            let addrs: Vec<SocketAddr> = tokio::task::spawn_blocking(move || (host.as_str(), 0).to_socket_addrs().map(|a| a.collect()))
-                .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)??;
+            let addrs: Vec<SocketAddr> =
+                tokio::task::spawn_blocking(move || (host.as_str(), 0).to_socket_addrs().map(|a| a.collect())).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)??;
             if addrs.is_empty() || addrs.iter().any(|a| is_private(a.ip())) {
                 return Err("That address is on your own network".into());
             }
@@ -85,15 +84,23 @@ fn assert_public(url: &Url) -> Result<()> {
     }
     match url.host() {
         None => Err(own_network()),
-        Some(Host::Ipv4(ip)) => if is_private(IpAddr::V4(ip)) { Err(own_network()) } else { Ok(()) },
-        Some(Host::Ipv6(ip)) => if is_private(IpAddr::V6(ip)) { Err(own_network()) } else { Ok(()) },
-        Some(Host::Domain(d)) => {
-            let d = d.to_ascii_lowercase();
-            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal") {
+        Some(Host::Ipv4(ip)) => {
+            if is_private(IpAddr::V4(ip)) {
                 Err(own_network())
             } else {
                 Ok(())
             }
+        }
+        Some(Host::Ipv6(ip)) => {
+            if is_private(IpAddr::V6(ip)) {
+                Err(own_network())
+            } else {
+                Ok(())
+            }
+        }
+        Some(Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal") { Err(own_network()) } else { Ok(()) }
         }
     }
 }
@@ -127,11 +134,11 @@ async fn get(client: &reqwest::Client, url: Url) -> Result<(reqwest::Response, U
                 HttpError::new(502, "The website didn’t answer")
             }
         })?;
-        if res.status().is_redirection() {
-            if let Some(next) = res.headers().get("location").and_then(|l| l.to_str().ok()).and_then(|l| current.join(l).ok()) {
-                current = next;
-                continue;
-            }
+        if res.status().is_redirection()
+            && let Some(next) = res.headers().get("location").and_then(|l| l.to_str().ok()).and_then(|l| current.join(l).ok())
+        {
+            current = next;
+            continue;
         }
         return Ok((res, current));
     }
@@ -201,7 +208,7 @@ pub fn icon_candidates(html: &str, base: &Url) -> Vec<Url> {
         let rank = if rel.contains("apple-touch-icon") { 180 } else { 0 } + size.min(256) + if url.path().ends_with(".svg") { 120 } else { 0 };
         found.push((url, rank));
     }
-    found.sort_by(|a, b| b.1.cmp(&a.1));
+    found.sort_by_key(|f| std::cmp::Reverse(f.1));
     found.into_iter().map(|(u, _)| u).collect()
 }
 
@@ -215,10 +222,8 @@ pub async fn fetch_site_icon(raw: &str) -> Result<String> {
     match get(&client, site.clone()).await {
         Ok((res, url)) => {
             let html = res.status().is_success() && res.headers().get("content-type").and_then(|v| v.to_str().ok()).is_some_and(|t| t.contains("html"));
-            if html {
-                if let Ok(body) = read_limited(res, MAX_HTML).await {
-                    candidates.extend(icon_candidates(&String::from_utf8_lossy(&body), &url));
-                }
+            if html && let Ok(body) = read_limited(res, MAX_HTML).await {
+                candidates.extend(icon_candidates(&String::from_utf8_lossy(&body), &url));
             }
         }
         Err(e) if e.status == 400 => return Err(e),

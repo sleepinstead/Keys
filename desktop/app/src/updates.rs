@@ -9,11 +9,11 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+use keys_core::api::Shared;
 use keys_core::storage::config_dir;
 use serde_json::{Value, json};
-use keys_core::api::Shared;
-use tauri::{AppHandle, Manager};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::{Update, UpdaterExt};
 

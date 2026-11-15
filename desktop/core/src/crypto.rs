@@ -40,11 +40,7 @@ pub fn new_kdf_params(short_credential: bool) -> KdfParams {
 
 /// KDF settings come from files the user opens, so bound them: a crafted file can't exhaust memory.
 pub fn is_valid_kdf(k: &KdfParams) -> bool {
-    k.algorithm == "argon2id"
-        && (8192..=1_048_576).contains(&k.memory)
-        && (1..=10).contains(&k.passes)
-        && (1..=16).contains(&k.parallelism)
-        && (16..=128).contains(&k.salt.len())
+    k.algorithm == "argon2id" && (8192..=1_048_576).contains(&k.memory) && (1..=10).contains(&k.passes) && (1..=16).contains(&k.parallelism) && (16..=128).contains(&k.salt.len())
 }
 
 /// Argon2id → 256-bit key. Slow on purpose: call it from a blocking thread.
@@ -53,11 +49,7 @@ pub fn derive_key(password: &str, params: &KdfParams) -> Result<Key, &'static st
         return Err("Unsupported KDF");
     }
     let salt = B64.decode(&params.salt).map_err(|_| "Invalid salt")?;
-    let argon = Argon2::new(
-        Algorithm::Argon2id,
-        Version::V0x13,
-        Params::new(params.memory, params.passes, params.parallelism, Some(KEY_BYTES)).map_err(|_| "Invalid key settings")?,
-    );
+    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::new(params.memory, params.passes, params.parallelism, Some(KEY_BYTES)).map_err(|_| "Invalid key settings")?);
     let message = Zeroizing::new(password.nfkc().collect::<String>());
     let mut out = Zeroizing::new([0u8; KEY_BYTES]);
     argon.hash_password_into(message.as_bytes(), &salt, out.as_mut()).map_err(|_| "Key derivation failed")?;
@@ -67,9 +59,7 @@ pub fn derive_key(password: &str, params: &KdfParams) -> Result<Key, &'static st
 pub fn encrypt(key: &[u8; KEY_BYTES], plaintext: &[u8], aad: &str) -> Vec<u8> {
     let cipher = Aes256Gcm::new_from_slice(key).expect("32-byte key");
     let nonce = random_bytes::<NONCE_BYTES>();
-    let sealed = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad: aad.as_bytes() })
-        .expect("AES-GCM encryption cannot fail for in-memory data");
+    let sealed = cipher.encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad: aad.as_bytes() }).expect("AES-GCM encryption cannot fail for in-memory data");
     // aes-gcm returns ciphertext || tag; the file format stores the tag first.
     let (ct, tag) = sealed.split_at(sealed.len() - TAG_BYTES);
     let mut out = Vec::with_capacity(1 + NONCE_BYTES + sealed.len());
@@ -94,10 +84,7 @@ pub fn decrypt(key: &[u8; KEY_BYTES], blob: &[u8], aad: &str) -> Result<Zeroizin
     sealed.extend_from_slice(ct);
     sealed.extend_from_slice(tag);
     let cipher = Aes256Gcm::new_from_slice(key).expect("32-byte key");
-    cipher
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: &sealed, aad: aad.as_bytes() })
-        .map(Zeroizing::new)
-        .map_err(|_| DecryptionError)
+    cipher.decrypt(Nonce::from_slice(nonce), Payload { msg: &sealed, aad: aad.as_bytes() }).map(Zeroizing::new).map_err(|_| DecryptionError)
 }
 
 pub fn encrypt_json(key: &[u8; KEY_BYTES], value: &serde_json::Value, aad: &str) -> Vec<u8> {

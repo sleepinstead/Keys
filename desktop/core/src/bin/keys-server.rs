@@ -15,7 +15,8 @@ async fn main() {
         }
     };
     let app = keys_core::api::App::new(storage, port);
-    // Testing the sidebar's update card without a real release: KEYS_FAKE_UPDATE=0.3.0.
+    // Testing the sidebar's update card without a real release (debug builds only): KEYS_FAKE_UPDATE=0.3.0.
+    #[cfg(debug_assertions)]
     if let Ok(version) = std::env::var("KEYS_FAKE_UPDATE") {
         app.set_update(Some(serde_json::json!({ "version": version, "notes": "Test update", "state": "available" })));
         let me = app.clone();

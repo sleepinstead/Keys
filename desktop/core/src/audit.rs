@@ -86,7 +86,10 @@ pub fn build_report(entries: &[Map<String, Value>], settings: &Value, now: i64) 
     // Exact copies: same site (or title, without one), username and password.
     let mut copies: Vec<(String, Vec<&Map<String, Value>>)> = Vec::new();
     for e in &logins {
-        let site = { let h = host_of(s(e, "url")); if h.is_empty() { s(e, "title").trim().to_lowercase() } else { h } };
+        let site = {
+            let h = host_of(s(e, "url"));
+            if h.is_empty() { s(e, "title").trim().to_lowercase() } else { h }
+        };
         let key = b64_sha256(&serde_json::to_string(&json!([site, s(e, "username").trim().to_lowercase(), s(e, "password")])).unwrap());
         match copies.iter_mut().find(|(k, _)| *k == key) {
             Some((_, list)) => list.push(e),
@@ -104,7 +107,10 @@ pub fn build_report(entries: &[Map<String, Value>], settings: &Value, now: i64) 
         .map(|(_, mut g)| {
             g.sort_by(|a, b| b["updatedAt"].as_i64().cmp(&a["updatedAt"].as_i64()));
             let kept = extras(g[0]);
-            let site = { let h = host_of(s(g[0], "url")); if h.is_empty() { s(g[0], "title").to_string() } else { h } };
+            let site = {
+                let h = host_of(s(g[0], "url"));
+                if h.is_empty() { s(g[0], "title").to_string() } else { h }
+            };
             json!({
                 "username": s(g[0], "username"),
                 "site": site,
@@ -259,11 +265,7 @@ mod tests {
     #[test]
     fn reuse_duplicates_age_and_health() {
         let now = 1_000 * DAY;
-        let entries = vec![
-            login("a", "hunter2", "github.com", now),
-            login("b", "hunter2", "https://www.github.com/login", now - 400 * DAY),
-            login("c", "x8$Kq!vZ2m#Lp9wR", "example.com", now),
-        ];
+        let entries = vec![login("a", "hunter2", "github.com", now), login("b", "hunter2", "https://www.github.com/login", now - 400 * DAY), login("c", "x8$Kq!vZ2m#Lp9wR", "example.com", now)];
         let r = build_report(&entries, &json!({ "outdatedDays": 365, "breachCheckEnabled": false }), now);
         assert_eq!(r["totals"]["reused"], 2);
         assert_eq!(r["totals"]["outdated"], 1);

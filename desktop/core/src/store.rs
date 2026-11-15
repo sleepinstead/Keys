@@ -99,10 +99,7 @@ pub fn inspect_database(file: &Path) -> std::result::Result<bool, String> {
     }
     let damaged = || "That database file is damaged or still syncing".to_string();
     let db = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|_| damaged())?;
-    let tables: Vec<String> = db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .and_then(|mut s| s.query_map([], |r| r.get(0))?.collect())
-        .map_err(|_| damaged())?;
+    let tables: Vec<String> = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").and_then(|mut s| s.query_map([], |r| r.get(0))?.collect()).map_err(|_| damaged())?;
     if tables.is_empty() {
         return Ok(true);
     }
@@ -226,9 +223,9 @@ impl Store {
 
     fn migrate(&mut self) -> Result<()> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        for v in version as usize..MIGRATIONS.len() {
+        for (v, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
             self.conn.execute_batch("BEGIN IMMEDIATE")?;
-            let done = self.conn.execute_batch(MIGRATIONS[v]).and_then(|_| self.conn.execute_batch(&format!("PRAGMA user_version = {}", v + 1)));
+            let done = self.conn.execute_batch(sql).and_then(|_| self.conn.execute_batch(&format!("PRAGMA user_version = {}", v + 1)));
             match done {
                 Ok(()) => self.conn.execute_batch("COMMIT")?,
                 Err(e) => {
@@ -268,9 +265,7 @@ impl Store {
     }
 
     pub fn set_meta(&mut self, key: &str, value: &str) -> Result<()> {
-        self.write(|c| {
-            c.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, value])
-        })?;
+        self.write(|c| c.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, value]))?;
         Ok(())
     }
 
@@ -308,10 +303,7 @@ impl Store {
                 "INSERT OR REPLACE INTO entries (id, blob, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?)",
                 params![row.id, row.blob, row.created_at, row.updated_at, row.deleted_at],
             ),
-            Table::Categories => c.execute(
-                "INSERT OR REPLACE INTO categories (id, blob, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                params![row.id, row.blob, row.created_at, row.updated_at],
-            ),
+            Table::Categories => c.execute("INSERT OR REPLACE INTO categories (id, blob, created_at, updated_at) VALUES (?, ?, ?, ?)", params![row.id, row.blob, row.created_at, row.updated_at]),
         })?;
         Ok(())
     }

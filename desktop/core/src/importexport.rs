@@ -164,7 +164,8 @@ fn from_bitwarden(data: &Map<String, Value>) -> Result<Vec<Value>> {
         .filter(|i| i["type"] == 1 || i["type"] == 2)
         .map(|i| {
             let st = |v: &Value| v.as_str().unwrap_or("").to_string();
-            let fields: Vec<Value> = i["fields"].as_array().map(|a| a.iter().map(|f| json!({ "id": "", "label": st(&f["name"]), "value": st(&f["value"]), "hidden": f["type"] == 1 })).collect()).unwrap_or_default();
+            let fields: Vec<Value> =
+                i["fields"].as_array().map(|a| a.iter().map(|f| json!({ "id": "", "label": st(&f["name"]), "value": st(&f["value"]), "hidden": f["type"] == 1 })).collect()).unwrap_or_default();
             json!({
                 "type": if i["type"] == 2 { "note" } else { "login" },
                 "title": i["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Imported item"),
@@ -294,8 +295,7 @@ pub fn import(store: &mut Store, key: &[u8; 32], source: &str, data: &Value) -> 
     }
     let fingerprint = |e: &Map<String, Value>| serde_json::to_string(&json!([s(e, "type"), s(e, "title").trim(), s(e, "username").trim(), s(e, "password"), s(e, "url").trim()])).unwrap();
     let mut existing: std::collections::HashSet<String> = vault::list_entries(store, key)?.iter().map(fingerprint).collect();
-    let mut ids: Vec<(String, String)> =
-        vault::list_categories(store, key)?.iter().map(|c| (c["name"].as_str().unwrap_or("").to_lowercase(), c["id"].as_str().unwrap_or("").to_string())).collect();
+    let mut ids: Vec<(String, String)> = vault::list_categories(store, key)?.iter().map(|c| (c["name"].as_str().unwrap_or("").to_lowercase(), c["id"].as_str().unwrap_or("").to_string())).collect();
     let (mut imported, mut skipped, mut created_count) = (0usize, 0usize, 0usize);
 
     store.transaction(|st| {

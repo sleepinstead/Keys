@@ -13,15 +13,15 @@ use rust_embed::RustEmbed;
 use serde_json::{Map, Value, json};
 
 use crate::crypto::{self, KdfParams, Key};
-use crate::extension::{self as ext, Pending};
-use crate::sharing::{self, Presence};
-use crate::{audit, favicon, importexport};
 use crate::error::{HttpError, Result};
+use crate::extension::{self as ext, Pending};
 use crate::session::{QuickUnlock, Session};
+use crate::sharing::{self, Presence};
 use crate::storage::{self, Storage};
 use crate::store::Store;
 use crate::validate::{self, opt_string, require_string};
 use crate::vault::{self, MIN_MASTER_LENGTH, credential_label, is_short_credential, now_ms};
+use crate::{audit, favicon, importexport};
 
 /// The built React app (`npm run build` → dist/), compiled into the binary.
 #[derive(RustEmbed)]
@@ -58,25 +58,10 @@ pub type Shared = Arc<App>;
 
 impl App {
     pub fn new(storage: Storage, port: u16) -> Shared {
-        let mut inner = Inner {
-            storage,
-            session: Session::new(),
-            quick: QuickUnlock::default(),
-            vault_id: None,
-            unlocking: false,
-            pending: Vec::new(),
-            presence: None,
-            breach_running: false,
-        };
+        let mut inner = Inner { storage, session: Session::new(), quick: QuickUnlock::default(), vault_id: None, unlocking: false, pending: Vec::new(), presence: None, breach_running: false };
         inner.vault_id = inner.current_vault_id();
         let app_url = format!("http://localhost:{port}");
-        Arc::new(App {
-            inner: Mutex::new(inner),
-            origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")],
-            app_url,
-            update: Mutex::new(None),
-            install: std::sync::OnceLock::new(),
-        })
+        Arc::new(App { inner: Mutex::new(inner), origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")], app_url, update: Mutex::new(None), install: std::sync::OnceLock::new() })
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -220,16 +205,34 @@ impl Inner {
 // ------------------------------------------------------------------ slow key work, off the async threads
 
 async fn derive(password: String, kdf: KdfParams) -> Result<Key> {
-    tokio::task::spawn_blocking(move || crypto::derive_key(&password, &kdf))
-        .await
-        .map_err(|_| HttpError::new(500, "Internal error"))?
-        .map_err(|e| HttpError::new(400, e))
+    tokio::task::spawn_blocking(move || crypto::derive_key(&password, &kdf)).await.map_err(|_| HttpError::new(500, "Internal error"))?.map_err(|e| HttpError::new(400, e))
+}
+
+/// Clears a busy flag when dropped, so a request that fails, panics or is cancelled half-way
+/// (the client went away during a slow key derivation) can't leave Keys refusing every later try.
+struct Busy<'a> {
+    app: &'a App,
+    flag: fn(&mut Inner) -> &mut bool,
+}
+
+impl<'a> Busy<'a> {
+    /// Sets the flag (the caller has checked it was clear, under the same lock).
+    fn set(app: &'a App, g: &mut Inner, flag: fn(&mut Inner) -> &mut bool) -> Busy<'a> {
+        *flag(g) = true;
+        Busy { app, flag }
+    }
+}
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        *(self.flag)(&mut self.app.lock()) = false;
+    }
 }
 
 /// Runs a password check with the lockout rules. Ok(Some(dek)) for the right password; a wrong
 /// one counts towards the lockout and gives Ok(None).
 async fn check_password(app: &App, password: &str) -> Result<Option<Key>> {
-    let (kdf, wrapped) = {
+    let ((kdf, wrapped), busy) = {
         let mut g = app.lock();
         if vault::lockout_until(g.store()?)?.is_some() {
             return Err(HttpError::coded(429, "Too many failed attempts. Try again later.", "LOCKED_OUT"));
@@ -238,12 +241,11 @@ async fn check_password(app: &App, password: &str) -> Result<Option<Key>> {
             return Err(HttpError::new(429, "An unlock is already in progress"));
         }
         let material = vault::unlock_material(g.store()?)?;
-        g.unlocking = true;
-        material
+        (material, Busy::set(app, &mut g, |i| &mut i.unlocking))
     };
     let kek = derive(password.to_string(), kdf).await;
+    drop(busy); // before taking the lock again
     let mut g = app.lock();
-    g.unlocking = false;
     let kek = kek?;
     let dek = vault::unwrap_dek(&kek, &wrapped);
     let store = g.store()?;
@@ -367,12 +369,12 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
     let m = method.as_str();
     let ok = |v: Value| Ok((200, v));
 
-    // Small, synchronous routes run under one lock.
+    // Small, synchronous routes run under one lock. The closure scopes `?` to the route's body.
     macro_rules! with {
         (|$g:ident| $body:expr) => {{
             let mut $g = app.lock();
+            #[allow(clippy::redundant_closure_call)]
             let out: Result<Value> = (|| $body)();
-            $g.after();
             out.map(|v| (200, v))
         }};
     }
@@ -447,7 +449,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         }
         ("POST", ["unlock", "pin"]) => {
             let pin = opt_string(body.get("pin"), 16);
-            let kdf = {
+            let (kdf, busy) = {
                 let mut g = app.lock();
                 if !vault::is_initialized(g.store()?)? {
                     return Err(HttpError::new(409, "Setup isn’t finished yet"));
@@ -458,12 +460,11 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
                 if g.quick.busy {
                     return Err(HttpError::new(429, "An unlock is already in progress"));
                 }
-                g.quick.busy = true;
-                kdf
+                (kdf, Busy::set(app, &mut g, |i| &mut i.quick.busy))
             };
             let pin_key = derive(pin, kdf).await;
+            drop(busy);
             let mut g = app.lock();
-            g.quick.busy = false;
             match g.quick.try_key(&pin_key?) {
                 Some(dek) => ok(g.opened(dek)?),
                 None if !g.quick.armed() => Err(HttpError::coded(401, "Too many wrong PINs. Use your master password to unlock.", "PIN_EXHAUSTED")),
@@ -524,7 +525,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         ("POST", ["sync", "merge"]) => with!(|g| {
             g.key_for(token, true)?;
             let file = require_string(body.get("path"), "Copy", 4096)?;
-            sharing::merge_conflict(g.store()?, &file).map_err(|e| HttpError::new(409, e.message))
+            sharing::merge_conflict(g.store()?, &file)
         }),
 
         // ------------------------------------------------------------ app updates (Mac app only)
@@ -541,7 +542,8 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         // ------------------------------------------------------------ tools
         ("POST", ["tools", "strength"]) => {
             let password = opt_string(body.get("password"), 1024);
-            let inputs: Vec<String> = body.get("userInputs").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| opt_string(Some(&Value::from(s)), 200)).collect()).unwrap_or_default();
+            let inputs: Vec<String> =
+                body.get("userInputs").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| opt_string(Some(&Value::from(s)), 200)).collect()).unwrap_or_default();
             ok(validate::check_strength(&password, &inputs))
         }
 
@@ -671,10 +673,11 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         ("PUT", ["categories", id]) => with!(|g| {
             let key = g.key_for(token, true)?;
             let color = body.get("color").cloned();
-            if let Some(c) = &color {
-                if !c.is_null() && !c.as_str().is_some_and(|c| validate::CATEGORY_COLORS.contains(&c)) {
-                    return Err(HttpError::new(400, "Unknown folder colour"));
-                }
+            if let Some(c) = &color
+                && !c.is_null()
+                && !c.as_str().is_some_and(|c| validate::CATEGORY_COLORS.contains(&c))
+            {
+                return Err(HttpError::new(400, "Unknown folder colour"));
             }
             let name = match body.get("name") {
                 None => None,
@@ -731,7 +734,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         // ------------------------------------------------------------ audit
         ("GET", ["audit"]) => ok(audit_report(app, token).await?),
         ("POST", ["audit", "breaches"]) => {
-            let targets: Vec<(String, String)> = {
+            let (targets, busy): (Vec<(String, String)>, Busy<'_>) = {
                 let mut g = app.lock();
                 let key = g.key_for(token, true)?;
                 if g.settings()?["breachCheckEnabled"] != true {
@@ -747,11 +750,10 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
                     .filter(|e| only.as_ref().is_none_or(|o| o.contains(&e["id"].as_str().unwrap_or(""))))
                     .map(|e| (e["id"].as_str().unwrap_or("").to_string(), e["password"].as_str().unwrap_or("").to_string()))
                     .collect();
-                g.breach_running = true;
-                list
+                (list, Busy::set(app, &mut g, |i| &mut i.breach_running))
             };
             let results = audit::check_breaches(&targets).await;
-            app.lock().breach_running = false;
+            drop(busy);
             let results = results.map_err(|e| HttpError::coded(502, format!("Breach check failed: {e}"), "NETWORK"))?;
             {
                 let mut g = app.lock();
@@ -905,12 +907,12 @@ async fn handle(State(app): State<Shared>, req: Request<Body>) -> Response {
     res
 }
 
-async fn read_json(body: Body, limit: usize) -> std::result::Result<Value, Response> {
-    let bytes: Bytes = axum::body::to_bytes(body, limit).await.map_err(|_| json_response(413, json!({ "error": "Request is too large" })))?;
+async fn read_json(body: Body, limit: usize) -> std::result::Result<Value, Box<Response>> {
+    let bytes: Bytes = axum::body::to_bytes(body, limit).await.map_err(|_| Box::new(json_response(413, json!({ "error": "Request is too large" }))))?;
     if bytes.is_empty() {
         return Ok(Value::Object(Map::new()));
     }
-    serde_json::from_slice(&bytes).map_err(|_| json_response(400, json!({ "error": "Malformed JSON" })))
+    serde_json::from_slice(&bytes).map_err(|_| Box::new(json_response(400, json!({ "error": "Malformed JSON" }))))
 }
 
 fn respond(out: Result<(u16, Value)>) -> Response {
@@ -929,15 +931,12 @@ async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, header
         // Web pages can't call these: the custom header forces a CORS preflight, never granted.
         // An Origin, when sent, has to be an extension's.
         let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
-        if method == Method::OPTIONS
-            || headers.get("x-keys-extension").and_then(|v| v.to_str().ok()) != Some("1")
-            || origin.is_some_and(|o| !ext::is_extension_origin(o))
-        {
+        if method == Method::OPTIONS || headers.get("x-keys-extension").and_then(|v| v.to_str().ok()) != Some("1") || origin.is_some_and(|o| !ext::is_extension_origin(o)) {
             return json_response(403, json!({ "error": "Request blocked", "code": "FORBIDDEN" }));
         }
         let value = match read_json(body, 64 * 1024).await {
             Ok(v) => v,
-            Err(res) => return res,
+            Err(res) => return *res,
         };
         let token = headers.get("x-keys-extension-token").and_then(|v| v.to_str().ok());
         let out = extension_route(app, method, rest, query, origin, token, &value).await;
@@ -950,17 +949,14 @@ async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, header
     if method == Method::OPTIONS {
         return json_response(403, json!({ "error": "Cross-origin requests are not allowed" }));
     }
-    if headers.get("x-keys-request").and_then(|v| v.to_str().ok()) != Some("1")
-        || origin.is_some_and(|o| !app.origins.iter().any(|a| a == o))
-        || site.is_some_and(|s| s != "same-origin")
-    {
+    if headers.get("x-keys-request").and_then(|v| v.to_str().ok()) != Some("1") || origin.is_some_and(|o| !app.origins.iter().any(|a| a == o)) || site.is_some_and(|s| s != "same-origin") {
         return json_response(403, json!({ "error": "Request blocked", "code": "FORBIDDEN" }));
     }
     // Backups carry each item's icon, so imports may be large.
     let limit = if path == "import" { 100 * 1024 * 1024 } else { 1024 * 1024 };
     let value = match read_json(body, limit).await {
         Ok(v) => v,
-        Err(res) => return res,
+        Err(res) => return *res,
     };
     let token = headers.get("x-keys-session").and_then(|v| v.to_str().ok());
     let out = route(app, method, path, token, &value).await;
@@ -977,10 +973,10 @@ fn pairing_of(g: &mut Inner, token: Option<&str>, origin: Option<&str>) -> Resul
     let i = list.iter().position(|p| p["hash"].as_str().is_some_and(|h| crypto::safe_equal(h, &hash))).ok_or_else(not_paired)?;
     // A token copied out of the extension doesn't work from anywhere else. Chrome leaves Origin off
     // some extension requests (plain GETs), so only a different one is refused.
-    if let (Some(bound), Some(origin)) = (list[i]["origin"].as_str(), origin) {
-        if bound != origin {
-            return Err(not_paired());
-        }
+    if let (Some(bound), Some(origin)) = (list[i]["origin"].as_str(), origin)
+        && bound != origin
+    {
+        return Err(not_paired());
     }
     // Remembered roughly, so a busy page doesn't write to the database on every request.
     let now = now_ms();
@@ -1204,7 +1200,6 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
     }
 }
 
-
 fn static_file(uri: &Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let (file, name) = match Assets::get(path).filter(|_| !path.is_empty()) {
@@ -1216,23 +1211,18 @@ fn static_file(uri: &Uri) -> Response {
     };
     let mime = mime_guess::from_path(name).first_or_octet_stream();
     // Built files have content hashes in their names: cache them for good. The page revalidates.
-    let cache = if name.starts_with("assets/") { "public, max-age=31536000, immutable" } else if name == "index.html" { "no-cache" } else { "public, max-age=3600" };
+    let cache = if name.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else if name == "index.html" {
+        "no-cache"
+    } else {
+        "public, max-age=3600"
+    };
     ([(header::CONTENT_TYPE, mime.as_ref().to_string()), (header::CACHE_CONTROL, cache.to_string())], file.data.into_owned()).into_response()
 }
 
 pub fn router(app: Shared) -> Router {
     Router::new().fallback(handle).layer(DefaultBodyLimit::disable()).with_state(app)
-}
-
-/// Serves Keys on 127.0.0.1:`port` until the process ends. Locks idle sessions every second.
-pub async fn serve(storage: Storage, port: u16) -> std::io::Result<()> {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    serve_on(storage, port, listener).await
-}
-
-/// Same, on a socket the caller already bound (the Mac app binds before opening its window).
-pub async fn serve_on(storage: Storage, port: u16, listener: tokio::net::TcpListener) -> std::io::Result<()> {
-    serve_app(App::new(storage, port), listener).await
 }
 
 /// Serves an existing App (the Mac app keeps a handle to it, to clean up on quit). Locks idle
@@ -1245,7 +1235,7 @@ pub async fn serve_app(app: Shared, listener: tokio::net::TcpListener) -> std::i
         loop {
             every.tick().await;
             ticker.tick();
-            if n % 60 == 0 {
+            if n.is_multiple_of(60) {
                 ticker.beat();
             }
             n += 1;

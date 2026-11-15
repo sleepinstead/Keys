@@ -9,7 +9,21 @@ mod updates;
 use std::time::Duration;
 
 use keys_core::storage::{Storage, config_dir, default_db_file};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::webview::NewWindowResponse;
+use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
+
+/// Website links ("Open github.com") go to the default browser; the Keys window never leaves Keys.
+fn open_in_browser(url: &Url) {
+    if matches!(url.scheme(), "http" | "https") {
+        let _ = std::process::Command::new("/usr/bin/open").arg(url.as_str()).spawn();
+    }
+}
+
+/// A GUI app has no terminal to print to, so problems at launch get a real alert.
+fn alert(title: &str, message: &str) {
+    let script = format!("display alert {title:?} message {message:?} as critical");
+    let _ = std::process::Command::new("/usr/bin/osascript").args(["-e", &script]).status();
+}
 
 /// Binds the port, waiting a moment if the previous Keys is still closing (after an update).
 fn bind(port: u16) -> Option<std::net::TcpListener> {
@@ -27,7 +41,7 @@ fn main() {
 
     // Bind first, so the window never opens onto nothing (and a second Keys says so clearly).
     let Some(listener) = bind(port) else {
-        eprintln!("Keys is already running, or another app uses port {port}. Quit it (or `npm start`) and open Keys again.");
+        alert("Keys is already open", &format!("Another copy of Keys, or Keys in the browser (npm start), is using port {port}. Quit it, then open Keys again."));
         std::process::exit(1);
     };
     listener.set_nonblocking(true).expect("non-blocking socket");
@@ -66,8 +80,20 @@ fn main() {
                     eprintln!("Keys stopped: {e}");
                 }
             });
-            let url = format!("http://localhost:{port}/").parse().expect("valid URL");
+            let url: Url = format!("http://localhost:{port}/").parse().expect("valid URL");
+            let home = url.clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+                .on_navigation(move |to| {
+                    let ours = to.scheme() == "http" && matches!(to.host_str(), Some("localhost" | "127.0.0.1")) && to.port() == home.port();
+                    if !ours {
+                        open_in_browser(to);
+                    }
+                    ours
+                })
+                .on_new_window(|to, _| {
+                    open_in_browser(&to);
+                    NewWindowResponse::Deny
+                })
                 .title("Keys")
                 .inner_size(1240.0, 820.0)
                 .min_inner_size(880.0, 600.0)

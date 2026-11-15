@@ -34,10 +34,11 @@ fn platform() -> &'static str {
 /// This computer's id, kept in the (unsynced) config folder; shared with the Node app.
 fn device_id() -> String {
     let file = config_dir().join("device.json");
-    if let Some(id) = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["id"].as_str().map(str::to_string)) {
-        if id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
-            return id;
-        }
+    if let Some(id) = fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["id"].as_str().map(str::to_string))
+        && id.len() == 16
+        && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return id;
     }
     let id: String = random_bytes::<8>().iter().map(|b| format!("{b:02x}")).collect();
     if fs::create_dir_all(config_dir()).is_ok() {
@@ -142,14 +143,9 @@ fn last_touched(r: &Row) -> i64 {
 /// Rows in `other` that are missing here or newer than ours.
 fn diff(store: &mut Store, other: &Connection) -> Result<Vec<(Table, Row)>> {
     let mut rows = Vec::new();
-    for (table, sql) in [
-        (Table::Categories, "SELECT id, blob, created_at, updated_at, NULL FROM categories"),
-        (Table::Entries, "SELECT id, blob, created_at, updated_at, deleted_at FROM entries"),
-    ] {
+    for (table, sql) in [(Table::Categories, "SELECT id, blob, created_at, updated_at, NULL FROM categories"), (Table::Entries, "SELECT id, blob, created_at, updated_at, deleted_at FROM entries")] {
         let mut stmt = other.prepare(sql)?;
-        let theirs = stmt
-            .query_map([], |r| Ok(Row { id: r.get(0)?, blob: r.get(1)?, created_at: r.get(2)?, updated_at: r.get(3)?, deleted_at: r.get(4)? }))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let theirs = stmt.query_map([], |r| Ok(Row { id: r.get(0)?, blob: r.get(1)?, created_at: r.get(2)?, updated_at: r.get(3)?, deleted_at: r.get(4)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
         for row in theirs {
             let mine = store.get(table, &row.id)?;
             if mine.as_ref().is_none_or(|m| last_touched(&row) > last_touched(m)) {

@@ -7,8 +7,7 @@ use crate::crypto::random_id;
 use crate::error::{HttpError, Result};
 
 pub const ENTRY_TYPES: [&str; 4] = ["login", "note", "apiKey", "recovery"];
-pub const CATEGORY_COLORS: [&str; 14] =
-    ["gray", "red", "orange", "amber", "yellow", "lime", "green", "teal", "cyan", "blue", "indigo", "violet", "pink", "rose"];
+pub const CATEGORY_COLORS: [&str; 14] = ["gray", "red", "orange", "amber", "yellow", "lime", "green", "teal", "cyan", "blue", "indigo", "violet", "pink", "rose"];
 
 pub fn len16(s: &str) -> usize {
     s.encode_utf16().count()
@@ -193,8 +192,7 @@ fn generator_options(raw: Option<&Value>, current: &Value) -> Value {
         if o.contains_key(k) { int_in(o.get(k), min, max, fallback) } else { fallback }
     };
     let mode = o.get("mode").and_then(Value::as_str).filter(|m| ["random", "passphrase", "pin"].contains(m)).map(Value::from).unwrap_or_else(|| base["mode"].clone());
-    let separator =
-        o.get("separator").and_then(Value::as_str).filter(|s| ["-", ".", "_", " ", ",", ""].contains(s)).map(Value::from).unwrap_or_else(|| base["separator"].clone());
+    let separator = o.get("separator").and_then(Value::as_str).filter(|s| ["-", ".", "_", " ", ",", ""].contains(s)).map(Value::from).unwrap_or_else(|| base["separator"].clone());
     let mut next = json!({
         "mode": mode,
         "length": num("length", 8, 128),
@@ -261,18 +259,14 @@ fn is_obvious_pin(pin: &str) -> bool {
             return true;
         }
     }
-    pin.len() % 2 == 0 && pin.len() >= 2 && pin == pin[..2].repeat(pin.len() / 2)
+    pin.len().is_multiple_of(2) && pin.len() >= 2 && pin == pin[..2].repeat(pin.len() / 2)
 }
 
-const COMMON_PINS: [&str; 16] =
-    ["1004", "2000", "2001", "6969", "1122", "1313", "2580", "0852", "1357", "2468", "5683", "0007", "112233", "123321", "696969", "159753"];
+const COMMON_PINS: [&str; 16] = ["1004", "2000", "2001", "6969", "1122", "1313", "2580", "0852", "1357", "2468", "5683", "0007", "112233", "123321", "696969", "159753"];
 
 pub fn is_weak_pin(pin: &str) -> bool {
     let half = &pin[..pin.len() / 2];
-    is_obvious_pin(pin)
-        || COMMON_PINS.contains(&pin)
-        || (pin.len() == 4 && (pin.starts_with("19") || pin.starts_with("20")))
-        || (pin.len() % 2 == 0 && format!("{half}{half}") == pin)
+    is_obvious_pin(pin) || COMMON_PINS.contains(&pin) || (pin.len() == 4 && (pin.starts_with("19") || pin.starts_with("20"))) || (pin.len().is_multiple_of(2) && format!("{half}{half}") == pin)
 }
 
 pub fn validate_pin(pin: Option<&Value>, lengths: &[usize]) -> Result<String> {

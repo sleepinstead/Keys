@@ -66,11 +66,8 @@ pub fn lockout_until(store: &mut Store) -> Result<Option<i64>> {
 
 /// What a password check needs from the file: the KDF settings and the wrapped vault key.
 pub fn unlock_material(store: &mut Store) -> Result<(KdfParams, Vec<u8>)> {
-    let kdf: KdfParams = store
-        .get_meta("kdf")?
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .filter(crypto::is_valid_kdf)
-        .ok_or_else(|| HttpError::new(400, "This database has invalid key settings"))?;
+    let kdf: KdfParams =
+        store.get_meta("kdf")?.and_then(|s| serde_json::from_str(&s).ok()).filter(crypto::is_valid_kdf).ok_or_else(|| HttpError::new(400, "This database has invalid key settings"))?;
     let wrapped = store.get_meta("wrapped_key")?.and_then(|s| crypto::b64_decode(&s)).ok_or_else(|| HttpError::new(400, "This database has invalid key settings"))?;
     Ok((kdf, wrapped))
 }
@@ -230,10 +227,10 @@ pub fn restore_entries(store: &mut Store, key: &K, ids: &[String]) -> Result<()>
             let row = s.get(Table::Entries, id)?.filter(|r| r.deleted_at.is_some()).ok_or_else(|| HttpError::new(404, "That item isn’t in Recently deleted"))?;
             s.set_deleted(id, None)?;
             let category = read_entry(key, &row)?.get("categoryId").and_then(Value::as_str).map(str::to_string);
-            if let Some(c) = category {
-                if s.get(Table::Categories, &c)?.is_none() {
-                    patch_entry(s, key, id, json!({ "categoryId": null }), |_| true)?;
-                }
+            if let Some(c) = category
+                && s.get(Table::Categories, &c)?.is_none()
+            {
+                patch_entry(s, key, id, json!({ "categoryId": null }), |_| true)?;
             }
         }
         Ok(())
@@ -259,10 +256,10 @@ pub fn get_entry(store: &mut Store, key: &K, id: &str) -> Result<Map<String, Val
 }
 
 fn check_category(store: &mut Store, input: &mut Map<String, Value>) -> Result<()> {
-    if let Some(id) = input.get("categoryId").and_then(Value::as_str).map(str::to_string) {
-        if store.get(Table::Categories, &id)?.is_none() {
-            input.insert("categoryId".into(), Value::Null);
-        }
+    if let Some(id) = input.get("categoryId").and_then(Value::as_str).map(str::to_string)
+        && store.get(Table::Categories, &id)?.is_none()
+    {
+        input.insert("categoryId".into(), Value::Null);
     }
     Ok(())
 }
@@ -272,14 +269,7 @@ pub fn create_entry(store: &mut Store, key: &K, input: Map<String, Value>) -> Re
 }
 
 /// Imports keep an item's original dates and password history.
-pub fn create_entry_with(
-    store: &mut Store,
-    key: &K,
-    mut input: Map<String, Value>,
-    created_at: Option<i64>,
-    password_updated_at: Option<i64>,
-    mut history: Vec<Value>,
-) -> Result<Map<String, Value>> {
+pub fn create_entry_with(store: &mut Store, key: &K, mut input: Map<String, Value>, created_at: Option<i64>, password_updated_at: Option<i64>, mut history: Vec<Value>) -> Result<Map<String, Value>> {
     let id = crypto::random_id();
     let now = now_ms();
     check_category(store, &mut input)?;
