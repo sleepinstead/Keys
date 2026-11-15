@@ -160,11 +160,15 @@ fn open_copy(path: &std::path::Path) -> Option<Connection> {
 
 fn diff(store: &mut Store, other: &Connection) -> Result<Vec<(Table, Row)>> {
     let mut rows = Vec::new();
+    let purged = crate::vault::purged_ids(store)?;
     for (table, sql) in [(Table::Categories, "SELECT id, blob, created_at, updated_at, NULL FROM categories"), (Table::Entries, "SELECT id, blob, created_at, updated_at, deleted_at FROM entries")] {
         let mut stmt = other.prepare(sql)?;
         let theirs = stmt.query_map([], |r| Ok(Row { id: r.get(0)?, blob: r.get(1)?, created_at: r.get(2)?, updated_at: r.get(3)?, deleted_at: r.get(4)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
         for row in theirs {
             let mine = store.get(table, &row.id)?;
+            if mine.is_none() && purged.contains(&row.id) {
+                continue; // deleted for good here: the copy's older version stays gone
+            }
             if mine.as_ref().is_none_or(|m| last_touched(&row) > last_touched(m)) {
                 rows.push((table, row));
             }
@@ -225,6 +229,7 @@ pub fn merge_conflict(store: &mut Store, file: &str) -> Result<Value> {
     let rows = diff(store, &db)?;
     drop(db);
     store.transaction(|s| rows.iter().try_for_each(|(t, r)| s.put_raw(*t, r)))?;
-    let _ = fs::remove_file(file);
+    // Kept, renamed so it isn't offered again: it might be someone's own backup.
+    let _ = fs::rename(file, format!("{file}.merged"));
     Ok(json!({ "merged": rows.len() }))
 }

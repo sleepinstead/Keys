@@ -26,7 +26,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // The Rust server only accepts its own origin, so dev requests are passed on as if from it.
-    proxy: { '/api': { target: 'http://127.0.0.1:5174', configure: (proxy) => proxy.on('proxyReq', (req) => req.setHeader('origin', 'http://127.0.0.1:5174')) } },
+    proxy: { '/api': { target: 'http://127.0.0.1:5174', configure: (proxy) => proxy.on('proxyReq', (req) => req.getHeader('origin') === 'http://localhost:5173' && req.setHeader('origin', 'http://127.0.0.1:5174')) } },
   },
   build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 900 },
 });

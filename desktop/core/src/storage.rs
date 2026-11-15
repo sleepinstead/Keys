@@ -123,6 +123,10 @@ impl Storage {
     }
 
     pub fn store(&mut self) -> Result<&mut Store> {
+        if self.current.as_ref().is_some_and(Store::vanished) {
+            self.current = None;
+            self.error = Some("The database file is missing. It may have been moved, deleted, or still be syncing".into());
+        }
         let err = self.error.clone();
         self.current.as_mut().ok_or_else(|| HttpError::coded(503, err.unwrap_or_else(|| "The database isn’t available".into()), "NO_DATABASE"))
     }

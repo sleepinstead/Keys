@@ -36,6 +36,10 @@ fn snapshot(store: &mut Store, key: &[u8; 32]) -> Result<Value> {
 
 // ------------------------------------------------------------------ CSV
 
+/// Stops early on absurd files instead of building millions of strings first.
+const MAX_CSV_ROWS: usize = 100_001;
+const MAX_CSV_FIELDS: usize = 200;
+
 pub fn parse_csv(text: &str) -> Result<Vec<Vec<String>>> {
     let src = text.strip_prefix('\u{feff}').unwrap_or(text);
     let (mut rows, mut row, mut field, mut quoted) = (Vec::new(), Vec::new(), String::new(), false);
@@ -56,12 +60,18 @@ pub fn parse_csv(text: &str) -> Result<Vec<Vec<String>>> {
             quoted = true;
         } else if c == ',' {
             row.push(std::mem::take(&mut field));
+            if row.len() > MAX_CSV_FIELDS {
+                return Err(HttpError::new(400, "This CSV has too many columns"));
+            }
         } else if c == '\n' || c == '\r' {
             if c == '\r' && chars.peek() == Some(&'\n') {
                 chars.next();
             }
             row.push(std::mem::take(&mut field));
             rows.push(std::mem::take(&mut row));
+            if rows.len() > MAX_CSV_ROWS {
+                return Err(HttpError::new(400, "This CSV has too many rows"));
+            }
         } else {
             field.push(c);
         }

@@ -260,8 +260,24 @@ pub fn purge_entries(store: &mut Store, ids: &[String]) -> Result<()> {
             }
             s.delete(Table::Entries, id)?;
         }
-        Ok(())
+        remember_purged(s, ids)
     })
+}
+
+/// Ids removed for good, so merging an older copy of the file can't bring them back.
+const PURGED_KEY: &str = "purged";
+const MAX_PURGED: usize = 50_000;
+
+pub fn purged_ids(store: &mut Store) -> Result<std::collections::HashSet<String>> {
+    Ok(store.get_meta(PURGED_KEY)?.and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok()).unwrap_or_default().into_iter().collect())
+}
+
+fn remember_purged(store: &mut Store, ids: &[String]) -> Result<()> {
+    let mut list: Vec<String> = store.get_meta(PURGED_KEY)?.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default();
+    list.extend(ids.iter().cloned());
+    let over = list.len().saturating_sub(MAX_PURGED);
+    list.drain(..over);
+    store.set_meta(PURGED_KEY, &serde_json::to_string(&list).map_err(|_| HttpError::new(500, "Internal error"))?)
 }
 
 pub fn get_entry(store: &mut Store, key: &K, id: &str) -> Result<Map<String, Value>> {
@@ -430,6 +446,7 @@ pub fn delete_category(store: &mut Store, key: &K, id: &str) -> Result<()> {
         if !s.delete(Table::Categories, id)? {
             return Err(HttpError::new(404, "Category not found"));
         }
+        remember_purged(s, &[id.to_string()])?;
         for e in list_entries(s, key)? {
             if e.get("categoryId").and_then(Value::as_str) == Some(id) {
                 let eid = e["id"].as_str().unwrap().to_string();

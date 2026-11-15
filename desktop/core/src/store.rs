@@ -185,6 +185,12 @@ impl Store {
         Some(Seen { ino: m.ino(), dev: m.dev(), size: m.size(), mtime_ns: m.mtime() as i128 * 1_000_000_000 + m.mtime_nsec() as i128 })
     }
 
+    /// The file was there and now isn't (deleted, or moved away by a sync app). SQLite would keep
+    /// serving the unlinked copy and refuse every save, so the caller drops this store instead.
+    pub fn vanished(&self) -> bool {
+        self.seen.is_some() && !self.in_memory() && !self.file.exists()
+    }
+
     fn remember(&mut self) {
         self.seen = self.stat();
     }
@@ -365,13 +371,21 @@ impl Store {
             s.conn.execute_batch("DELETE FROM entries; DELETE FROM categories; DELETE FROM meta;")?;
             Ok(())
         })?;
-        self.conn.execute_batch("VACUUM")?;
+        // The data is already gone; a failed compaction (disk full, busy) mustn't turn that into an error.
+        if let Err(e) = self.conn.execute_batch("VACUUM") {
+            log::warn!("compacting after erase failed: {e}");
+        }
         self.remember();
         Ok(())
     }
 
     /// Writes a compact, consistent copy of the whole database to `file` (which must not exist).
-    pub fn copy_to(&self, file: &Path) -> Result<()> {
+    pub fn copy_to(&mut self, file: &Path) -> Result<()> {
+        // The newest version: a sync app may have replaced the file since it was last read.
+        self.refresh();
+        if self.swapped {
+            return Err(HttpError::coded(409, "The database was replaced on another computer. Unlock again first", "DB_CHANGED"));
+        }
         let path = file.to_str().ok_or_else(|| HttpError::new(400, "That location isn’t valid"))?;
         self.conn.execute("VACUUM INTO ?", [path])?;
         Ok(())

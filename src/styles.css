@@ -2017,12 +2017,12 @@ svg.dial-layer {
 }
 .entry-row[aria-current='true'] {
   border-color: var(--border);
-  background: var(--bg-subtle);
+  background: var(--bg-active);
 }
 .entry-row:focus-visible {
   outline: none;
   /* Inside the row's own edge: list rows sit flush, so an outer ring gets clipped and looks heavy. */
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
 }
 .entry-row-text {
   display: grid;

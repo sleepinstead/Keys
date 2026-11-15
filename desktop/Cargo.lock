@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "keys-app"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "keys-core",
  "log",

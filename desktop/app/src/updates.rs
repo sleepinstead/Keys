@@ -204,6 +204,10 @@ pub async fn check(app: AppHandle, asked: Asked) -> Value {
         return json!({ "state": "available", "version": update.version });
     }
 
+    // An install may have started while this check was on the network: leave its progress alone.
+    if INSTALLING.load(std::sync::atomic::Ordering::SeqCst) {
+        return json!({ "state": "installing" });
+    }
     *app.state::<Pending>().0.lock().unwrap_or_else(|p| p.into_inner()) = Some(update.clone());
     report(&app, &update, "available");
     let found = json!({ "state": "available", "version": update.version });

@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod audit;
+pub mod clipboard;
 pub mod crypto;
 pub mod error;
 pub mod extension;

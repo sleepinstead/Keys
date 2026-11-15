@@ -109,6 +109,8 @@ export function EntryDetail({
   const hideIcons = settings.hideIcons;
   const [strength, setStrength] = useState<StrengthResult | null>(null);
   const shownId = useRef<string | null>(null);
+  const current = useRef(entryId); // the selected item, for answers that arrive after a switch
+  current.current = entryId;
 
   // The item on screen stays until the next one (and its strength rating) has fully loaded,
   // then they swap in one go: no spinner flash, and no badges popping in afterwards.
@@ -164,8 +166,8 @@ export function EntryDetail({
       // (say, a password the browser extension saved after this page loaded).
       await api.updateEntries([entry.id], { favorite: !entry.favorite });
       const updated = await api.entry(entry.id);
-      setEntry(updated);
       onChanged(updated);
+      if (current.current === updated.id) setEntry(updated); // the user may have moved on meanwhile
     } catch (err) {
       toast(errorMessage(err), 'error');
     }
@@ -192,8 +194,11 @@ export function EntryDetail({
     });
     if (!ok) return;
     try {
-      setEntry(await api.clearHistory(entry.id));
-      setHistoryOpen(false);
+      const cleared = await api.clearHistory(entry.id);
+      if (current.current === cleared.id) {
+        setEntry(cleared);
+        setHistoryOpen(false);
+      }
     } catch (err) {
       toast(errorMessage(err), 'error');
     }
@@ -268,9 +273,9 @@ export function EntryDetail({
           <div className="group">
             {entry.type !== 'note' && entry.username && <PlainRow label={labels.username} value={entry.username} what={labels.username.toLowerCase()} />}
             {(entry.type === 'login' || entry.type === 'apiKey') && entry.password && (
-              <SecretRow label={labels.password} value={entry.password} what={labels.password.toLowerCase()} extra={entry.type === 'login' ? strengthChip : undefined} />
+              <SecretRow key={entry.id} label={labels.password} value={entry.password} what={labels.password.toLowerCase()} extra={entry.type === 'login' ? strengthChip : undefined} />
             )}
-            {entry.type === 'recovery' && codes.length > 0 && <CodesRow codes={codes} />}
+            {entry.type === 'recovery' && codes.length > 0 && <CodesRow key={entry.id} codes={codes} />}
             {entry.type !== 'note' && entry.url && (
               <Row
                 label={labels.url}
@@ -298,7 +303,7 @@ export function EntryDetail({
             )}
             {entry.customFields.map((f) =>
               f.hidden ? (
-                <SecretRow key={f.id} label={f.label || 'Field'} value={f.value} what={(f.label || 'field').toLowerCase()} />
+                <SecretRow key={`${entry.id}:${f.id}`} label={f.label || 'Field'} value={f.value} what={(f.label || 'field').toLowerCase()} />
               ) : (
                 <PlainRow key={f.id} label={f.label || 'Field'} value={f.value} what={(f.label || 'field').toLowerCase()} />
               ),
@@ -326,7 +331,7 @@ export function EntryDetail({
               {historyOpen && (
                 <motion.div className="collapse" {...collapse}>
                   {entry.history.map((h, i) => (
-                    <SecretRow key={i} label={`Used until ${formatDate(h.changedAt)}`} value={h.password} what="old password" />
+                    <SecretRow key={`${entry.id}:${i}`} label={`Used until ${formatDate(h.changedAt)}`} value={h.password} what="old password" />
                   ))}
                   <div className="collapse-foot">
                     <Button variant="ghost" size="sm" className="text-danger" icon={<Trash2 size={14} />} onClick={clearHistory}>

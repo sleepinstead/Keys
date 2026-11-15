@@ -92,10 +92,11 @@ impl App {
             inner.pairings_file = Some(storage::config_dir().join("browsers.json"));
         }
         inner.vault_id = inner.current_vault_id();
-        let app_url = format!("http://localhost:{port}");
+        // 127.0.0.1, never "localhost": that name may resolve to ::1 first, where another program could listen.
+        let app_url = format!("http://127.0.0.1:{port}");
         Arc::new(App {
             inner: Mutex::new(inner),
-            origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")],
+            origins: vec![app_url.clone()],
             app_url,
             update: Mutex::new(None),
             install: std::sync::OnceLock::new(),
@@ -345,21 +346,20 @@ async fn check_password(app: &App, password: &str) -> Result<Option<Key>> {
         (material, Busy::set(app, &mut g, |i| &mut i.unlocking))
     };
     let kek = derive(Secret::new(password.to_string()), kdf).await;
-    drop(busy); // before taking the lock again
-    let mut g = app.lock();
-    let kek = kek?;
-    let dek = vault::unwrap_dek(&kek, &wrapped);
-    let store = g.store()?;
-    match dek {
-        Some(dek) => {
-            vault::reset_failures(store)?;
-            Ok(Some(dek))
+    // The outcome is recorded before the next attempt may start (Busy is released last), so a guess
+    // can't slip in between a failure and the lockout it triggers.
+    let outcome = {
+        let mut g = app.lock();
+        let kek = kek?;
+        let dek = vault::unwrap_dek(&kek, &wrapped);
+        let store = g.store()?;
+        match dek {
+            Some(dek) => vault::reset_failures(store).map(|_| Some(dek)),
+            None => vault::record_failure(store).map(|_| None),
         }
-        None => {
-            vault::record_failure(store)?;
-            Ok(None)
-        }
-    }
+    };
+    drop(busy); // takes the lock itself
+    outcome
 }
 
 /// The raw (encrypted) item rows and the session key, taken under the lock; decrypting happens after.
@@ -657,6 +657,26 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             sharing::merge_conflict(g.store()?, &file)
         }),
 
+        // ------------------------------------------------------------ clipboard
+        // Clears a copied secret after a delay, even while Keys is in the background, and only if the
+        // clipboard still holds it (compared by SHA-256), so something copied since is never erased.
+        // No session needed: locking clears it too. The page sends only the hash, never the secret.
+        ("POST", ["clipboard", "clear"]) => {
+            let hash = require_string(body.get("hash"), "Hash", 64)?.to_ascii_lowercase();
+            let secs = body.get("seconds").and_then(Value::as_u64).unwrap_or(0).min(3600);
+            if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(HttpError::new(400, "Bad hash"));
+            }
+            let native = crate::clipboard::SUPPORTED;
+            if native {
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                    let _ = tokio::task::spawn_blocking(move || crate::clipboard::clear_if(&hash)).await;
+                });
+            }
+            ok(json!({ "native": native }))
+        }
+
         // ------------------------------------------------------------ the Mac app (Settings → Updates)
         ("GET", ["app"]) => {
             app.lock().key_for(token, false)?;
@@ -892,7 +912,11 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         ("POST", ["tools", "site-icon"]) => {
             app.lock().key_for(token, true)?;
             let url = opt_string(body.get("url"), 2048);
-            ok(json!({ "icon": favicon::fetch_site_icon(&url).await? }))
+            // At most 4 sites at once, 15 seconds each in all (slow sites can't tie Keys up).
+            static ICON_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+            let _slot = ICON_SLOTS.acquire().await.map_err(|_| HttpError::new(503, "Busy"))?;
+            let icon = tokio::time::timeout(std::time::Duration::from_secs(15), favicon::fetch_site_icon(&url)).await.map_err(|_| HttpError::new(504, "The website took too long"))??;
+            ok(json!({ "icon": icon }))
         }
 
         // ------------------------------------------------------------ audit
@@ -976,7 +1000,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         }
         ("POST", ["import"]) => {
             app.lock().key_for(token, true)?;
-            let content = require_string(body.get("content"), "File content", 90_000_000)?;
+            let content = require_string(body.get("content"), "File content", 30_000_000)?;
             let password = body.get("password").and_then(Value::as_str).filter(|p| !p.is_empty()).map(|p| Secret::new(p.to_string()));
             let (source, data) = match importexport::parse_import(&content, password.is_some())? {
                 importexport::Parsed::Ready { source, data } => (source, data),
@@ -1129,7 +1153,7 @@ async fn api(app: &App, method: &Method, path: &str, query: Option<&str>, header
     {
         return respond(Err(e));
     }
-    let limit = if path == "import" { 100 * 1024 * 1024 } else { 1024 * 1024 };
+    let limit = if path == "import" { 40 * 1024 * 1024 } else { 1024 * 1024 };
     let mut value = match read_json(body, limit).await {
         Ok(v) => v,
         Err(res) => return *res,
@@ -1203,6 +1227,11 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
     let ok = |v: Value| Ok((200, v));
     let q = |name: &str| query.and_then(|q| url::form_urlencoded::parse(q.as_bytes()).find(|(k, _)| k == name).map(|(_, v)| v.into_owned()));
 
+    // Chrome always names the extension on POSTs: a token replayed from elsewhere (curl, malware
+    // holding a copied token) without an Origin can't unlock, save or read secrets.
+    if method == Method::POST && origin.is_none() && parts.as_slice() != ["show"] {
+        return Err(HttpError::new(403, "Request blocked"));
+    }
     match (method.as_str(), parts.as_slice()) {
         // "Open Keys" from the extension: the Mac app shows its window instead of a browser tab opening.
         // Harmless to anyone (it only brings Keys forward), so it works before pairing too.
@@ -1233,6 +1262,10 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
             let mut g = app.lock();
             g.sweep();
             let Some(i) = g.pending.iter().position(|p| p.id == *id) else { return ok(json!({ "status": "expired" })) };
+            // Only the extension that asked collects the token (when its browser says who it is).
+            if origin.is_some_and(|o| o != g.pending[i].origin) {
+                return ok(json!({ "status": "expired" }));
+            }
             if g.pending[i].token.is_some() {
                 let p = g.pending.remove(i); // the token is handed over exactly once
                 return ok(json!({ "status": "approved", "token": p.token }));
@@ -1366,9 +1399,12 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
             let dek = check_password(app, &secret).await?.ok_or_else(|| HttpError::coded(401, format!("Incorrect {label}"), "BAD_PASSWORD"))?;
             rearm_pin(app, &dek).await?;
             let mut g = app.lock();
-            g.vault_id = g.current_vault_id();
-            g.settings()?;
-            g.session.open(dek, now_ms());
+            // The app may have unlocked meanwhile: keep its session instead of replacing it.
+            if !g.session.unlocked() {
+                g.vault_id = g.current_vault_id();
+                g.settings()?;
+                g.session.open(dek, now_ms());
+            }
             ok(json!({ "unlocked": true }))
         }
         ("POST", ["lock"]) => {

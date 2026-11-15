@@ -7,6 +7,9 @@
 const DEFAULT_SERVER = 'http://127.0.0.1:5174';
 const CLEAR_ALARM = 'keys-clear-clipboard';
 
+// Only the worker and popup may read the pairing token; content scripts on web pages can't.
+chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
+
 class KeysError extends Error {
   constructor(message, code) {
     super(message);
