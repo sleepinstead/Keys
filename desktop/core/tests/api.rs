@@ -318,6 +318,9 @@ async fn stale_edit_and_background_icon_are_refused() {
 
 /// A sync app replacing the file with a *different* vault while unlocked: the old session must not
 /// write into it (rows under the wrong key made the new vault's list fail to load).
+/// macOS only: Windows refuses to replace a file another program has open (sync apps make a
+/// conflict copy instead, which `sharing` merges).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn swapped_vault_refuses_writes_and_locks() {
     let dir = tempfile::tempdir().unwrap();
