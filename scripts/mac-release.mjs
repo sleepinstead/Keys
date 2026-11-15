@@ -84,7 +84,12 @@ fs.mkdirSync(out);
 const updateName = `Keys-mac-${version}-arm64.app.tar.gz`;
 const zipName = `Keys-mac-${version}-arm64.zip`;
 const tarball = path.join(out, updateName);
-run('tar', ['-czf', tarball, '-C', bundle, 'Keys.app']);
+// macOS tar adds AppleDouble "._" files for extended attributes; the updater can't unpack those.
+run('tar', ['--no-mac-metadata', '--no-xattrs', '-czf', tarball, '-C', bundle, 'Keys.app'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+// Listed raw (macOS tar hides "._" entries when it reads its own archives).
+const listing = read('python3', ['-c', 'import sys,tarfile; print("\\n".join(tarfile.open(sys.argv[1]).getnames()))', tarball]).split('\n');
+if (listing.some((f) => path.basename(f.replace(/\/$/, '')).startsWith('._'))) fail('The update package contains macOS metadata files.');
+if (!listing.includes('Keys.app/Contents/MacOS/keys-app')) fail('The update package is missing the app.');
 run('ditto', ['-c', '-k', '--keepParent', path.join(bundle, 'Keys.app'), path.join(out, zipName)]);
 // The browser extension ships alongside the app, from what's committed (git archive, like before).
 const extVersion = JSON.parse(fs.readFileSync(path.join(root, 'extension/manifest.json'), 'utf8')).version;
