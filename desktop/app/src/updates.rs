@@ -77,6 +77,7 @@ pub async fn install(app: AppHandle) {
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 pub const MENU_CHECK: &str = "check-updates";
 pub const MENU_AUTO: &str = "auto-updates";
+pub const MENU_SETTINGS: &str = "settings";
 
 fn prefs_file() -> std::path::PathBuf {
     config_dir().join("updates.json")
@@ -84,6 +85,14 @@ fn prefs_file() -> std::path::PathBuf {
 
 pub fn auto_enabled() -> bool {
     std::fs::read_to_string(prefs_file()).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).and_then(|v| v["auto"].as_bool()).unwrap_or(true)
+}
+
+/// Turns automatic checks on or off, from the menu or Settings, and keeps the menu's tick in step.
+pub fn set_auto_everywhere(app: &AppHandle, on: bool) {
+    set_auto(on);
+    if let Some(item) = app.menu().and_then(|m| m.get(MENU_AUTO)).and_then(|i| i.as_check_menuitem().cloned()) {
+        let _ = item.set_checked(on);
+    }
 }
 
 pub fn set_auto(on: bool) {
@@ -95,10 +104,11 @@ pub fn set_auto(on: bool) {
 pub fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
     if let Some(app_menu) = menu.items()?.first().and_then(|i| i.as_submenu().cloned()) {
+        let settings = MenuItem::with_id(app, MENU_SETTINGS, "Settings…", true, Some("CmdOrCtrl+,"))?;
         let check = MenuItem::with_id(app, MENU_CHECK, "Check for Updates…", true, None::<&str>)?;
         let auto = CheckMenuItem::with_id(app, MENU_AUTO, "Check for Updates Automatically", true, auto_enabled(), None::<&str>)?;
         let sep = PredefinedMenuItem::separator(app)?;
-        app_menu.insert_items(&[&check, &auto, &sep], 2)?;
+        app_menu.insert_items(&[&settings, &check, &auto, &sep], 2)?;
     }
     Ok(menu)
 }

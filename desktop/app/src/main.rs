@@ -64,11 +64,12 @@ fn main() {
             updates::MENU_CHECK => {
                 tauri::async_runtime::spawn(updates::check(app.clone(), true));
             }
-            updates::MENU_AUTO => {
-                let on = !updates::auto_enabled();
-                updates::set_auto(on);
-                if let Some(item) = app.menu().and_then(|m| m.get(updates::MENU_AUTO)).and_then(|i| i.as_check_menuitem().cloned()) {
-                    let _ = item.set_checked(on);
+            updates::MENU_AUTO => updates::set_auto_everywhere(app, !updates::auto_enabled()),
+            // ⌘, : the app's own Settings page.
+            updates::MENU_SETTINGS => {
+                show_main(app);
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval("window.dispatchEvent(new Event('keys:open-settings'))");
                 }
             }
             _ => {}
@@ -86,6 +87,15 @@ fn main() {
             let _ = keys_slot.set(keys.clone());
             let front = app.handle().clone();
             keys.on_show(move || show_main(&front));
+            let (checker, auto) = (app.handle().clone(), app.handle().clone());
+            keys.set_native(keys_core::api::NativeApp {
+                version: app.package_info().version.to_string(),
+                check: Box::new(move || {
+                    tauri::async_runtime::spawn(updates::check(checker.clone(), true));
+                }),
+                auto: Box::new(updates::auto_enabled),
+                set_auto: Box::new(move |on| updates::set_auto_everywhere(&auto, on)),
+            });
             app.manage(keys.clone());
             app.manage(updates::Pending::default());
             let handle = app.handle().clone();

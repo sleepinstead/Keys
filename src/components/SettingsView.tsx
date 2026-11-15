@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, MonitorSmartphone, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Archive, ArrowDownToLine, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, MonitorSmartphone, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
 import { collapse, fade } from '../motion.ts';
@@ -144,6 +144,7 @@ export function SettingsView({
       </Section>
       {vaultStatus && <StorageSection storage={vaultStatus.storage} credential={vaultStatus.credential} onMoved={refreshStatus} />}
       {vaultStatus && !vaultStatus.storage.isDefault && <SharingSection sync={sync} onMerged={onMerged} />}
+      <UpdatesSection />
 
       <Section title="Icons" icon={<Shapes size={17} />} size="narrow" lede="Hidden kinds show as plain text rows.">
         <div className="group">
@@ -261,6 +262,66 @@ function formatSize(bytes: number | null): string {
 }
 
 /** The same file on other computers: who else has it open, and conflict copies to merge. */
+/** Keys for Mac only: its version, a manual update check, and automatic checks. */
+function UpdatesSection() {
+  const toast = useToast();
+  const [info, setInfo] = useState<{ native: boolean; version?: string; autoUpdate?: boolean } | null>(null);
+  const [checking, setChecking] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.appInfo().then(
+      (i) => live && setInfo(i),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!info?.native) return null;
+
+  async function check() {
+    setChecking(true);
+    try {
+      await api.checkForUpdates(); // the app answers in its own window: up to date, or the new version
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      window.setTimeout(() => setChecking(false), 1500);
+    }
+  }
+  async function setAuto(on: boolean) {
+    try {
+      const { autoUpdate } = await api.setAutoUpdate(on);
+      setInfo((i) => (i ? { ...i, autoUpdate } : i));
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  }
+
+  return (
+    <Section title="Updates" icon={<ArrowDownToLine size={17} />} size="narrow" lede={`Keys for Mac ${info.version}`}>
+      <div className="group">
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Check for updates</div>
+            <div className="setting-desc">Looks for a newer Keys for Mac. Nothing about you or your vault is sent.</div>
+          </div>
+          <Button size="sm" variant="outline" loading={checking} onClick={() => void check()}>
+            Check now
+          </Button>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Check automatically</div>
+            <div className="setting-desc">A few times a day. A new version shows in the sidebar, above Lock.</div>
+          </div>
+          <Switch checked={Boolean(info.autoUpdate)} onChange={(v) => void setAuto(v)} label="Check for updates automatically" />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 function SharingSection({ sync, onMerged }: { sync: SyncStatus | null; onMerged: () => Promise<void> }) {
   const confirm = useConfirm();
   const toast = useToast();

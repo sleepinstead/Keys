@@ -104,6 +104,10 @@ export const api = {
   sync: () => request<SyncStatus>('GET', '/sync'),
   mergeConflict: (path: string) => request<{ merged: number }>('POST', '/sync/merge', { path }),
   installUpdate: () => request<{ ok: true }>('POST', '/update/install'),
+  /** The Mac app's version and update settings ({ native: false } in the browser). */
+  appInfo: () => request<{ native: boolean; version?: string; autoUpdate?: boolean }>('GET', '/app'),
+  checkForUpdates: () => request<{ ok: true }>('POST', '/update/check'),
+  setAutoUpdate: (on: boolean) => request<{ autoUpdate: boolean }>('PUT', '/update/auto', { on }),
   browseStorage: (mode: 'open' | 'save') => request<{ path: string | null }>('POST', '/storage/browse', { mode }),
   storageTemplate: () => request<{ filename: string; data: string }>('GET', '/storage/template'),
   setup: (password: string, type: CredentialType = 'password') => request<VaultStatus>('POST', '/setup', { password, type }),

@@ -59,9 +59,19 @@ pub struct App {
     install: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
     /// Brings the Mac app's window forward (the extension's "Open Keys"); absent in the plain server.
     show: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// The Mac app's version and update controls, for the Updates card in Settings.
+    native: std::sync::OnceLock<NativeApp>,
 }
 
 pub type Shared = Arc<App>;
+
+/// What the Mac app offers Settings: its version, a manual update check, and automatic checks.
+pub struct NativeApp {
+    pub version: String,
+    pub check: Box<dyn Fn() + Send + Sync>,
+    pub auto: Box<dyn Fn() -> bool + Send + Sync>,
+    pub set_auto: Box<dyn Fn(bool) + Send + Sync>,
+}
 
 impl App {
     pub fn new(storage: Storage, port: u16) -> Shared {
@@ -90,6 +100,7 @@ impl App {
             update: Mutex::new(None),
             install: std::sync::OnceLock::new(),
             show: std::sync::OnceLock::new(),
+            native: std::sync::OnceLock::new(),
         })
     }
 
@@ -105,6 +116,11 @@ impl App {
     /// What "Update & restart" in the sidebar runs.
     pub fn on_install(&self, run: impl Fn() + Send + Sync + 'static) {
         let _ = self.install.set(Box::new(run));
+    }
+
+    /// Set by the Mac app: the Updates card in Settings uses it.
+    pub fn set_native(&self, native: NativeApp) {
+        let _ = self.native.set(native);
     }
 
     /// What the extension's "Open Keys" runs in the Mac app.
@@ -618,6 +634,28 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
             let file = require_string(body.get("path"), "Copy", 4096)?;
             sharing::merge_conflict(g.store()?, &file)
         }),
+
+        // ------------------------------------------------------------ the Mac app (Settings → Updates)
+        ("GET", ["app"]) => {
+            app.lock().key_for(token, false)?;
+            ok(match app.native.get() {
+                Some(n) => json!({ "native": true, "version": n.version, "autoUpdate": (n.auto)() }),
+                None => json!({ "native": false }),
+            })
+        }
+        ("POST", ["update", "check"]) => {
+            app.lock().key_for(token, true)?;
+            let n = app.native.get().ok_or_else(|| HttpError::new(404, "Updates come through the Mac app"))?;
+            (n.check)();
+            ok(json!({ "ok": true }))
+        }
+        ("PUT", ["update", "auto"]) => {
+            app.lock().key_for(token, true)?;
+            let n = app.native.get().ok_or_else(|| HttpError::new(404, "Updates come through the Mac app"))?;
+            let on = body.get("on").and_then(Value::as_bool).ok_or_else(|| HttpError::new(400, "Say on or off"))?;
+            (n.set_auto)(on);
+            ok(json!({ "autoUpdate": (n.auto)() }))
+        }
 
         // ------------------------------------------------------------ app updates (Mac app only)
         ("POST", ["update", "install"]) => {

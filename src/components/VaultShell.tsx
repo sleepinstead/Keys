@@ -445,6 +445,13 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         setPaletteOpen((o) => !o);
         return;
       }
+      // ⌘, : Settings, as in every Mac app.
+      if (mod && e.key === ',') {
+        if (document.querySelector('.dialog-layer')) return;
+        e.preventDefault();
+        selectView({ kind: 'settings' });
+        return;
+      }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         onLock();
@@ -467,8 +474,12 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         (document.activeElement as HTMLElement | null)?.blur();
       }
     };
+    // The Mac app's Keys → Settings… menu item (⌘,) sends this.
+    const openSettings = () => selectView({ kind: 'settings' });
+    window.addEventListener('keys:open-settings', openSettings);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => window.removeEventListener('keys:open-settings', openSettings);
+      window.removeEventListener('keydown', onKey);
   }, [create, onLock]);
 
   const defaultType: EntryType = filter.kind === 'type' ? filter.type : 'login';

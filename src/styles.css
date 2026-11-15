@@ -6108,3 +6108,7 @@ button.sync-note {
 .page-pane .audit-side {
   top: calc(var(--page-head-h, 120px) + 16px);
 }
+/* Same gap as the list beside them, so the panels don't shift when scrolling starts. */
+.page-pane .audit-side {
+  top: calc(var(--page-head-h, 120px) + 24px);
+}
