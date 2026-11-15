@@ -29,6 +29,8 @@ I built it for people who want a private, simple place for their passwords witho
 
 Download Keys from [Releases](https://github.com/sleepinstead/Keys/releases). **Mac:** unzip it and drag **Keys.app** to Applications. **Windows:** run the setup `.exe` (if Windows says it protected your PC, choose **More info → Run anyway**; the installer isn't code-signed yet). The first time, Keys walks you through a short setup where you choose how to unlock it. It updates itself.
 
+No desktop app for your system yet? Run Keys in the browser instead: see [web/README.md](web/README.md).
+
 To work on the code you need Node.js 24.7+ and Rust. Run `npm install`, then `npm run dev` (the Rust server plus live-reloading UI) and open http://localhost:5173.
 
 ## Where your data lives
@@ -73,6 +75,7 @@ src/         React interface
 shared/      types and the password generator
 extension/   browser extension
 phone/       read-only iPhone web app
+web/         Keys in the browser (Node server for the same interface)
 ```
 
 Third-party fonts, word lists and libraries are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

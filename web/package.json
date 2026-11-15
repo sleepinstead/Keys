@@ -1,0 +1,25 @@
+{
+  "name": "keys-web",
+  "private": true,
+  "version": "0.3.0",
+  "description": "Keys in the browser: the same app and vault as the desktop app, served by Node on 127.0.0.1:5174.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.7"
+  },
+  "scripts": {
+    "setup": "npm install && npm --prefix .. install",
+    "build": "npm --prefix .. run build",
+    "start": "node server/index.ts --production",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
