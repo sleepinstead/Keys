@@ -103,6 +103,8 @@ export const api = {
   retryStorage: () => request<VaultStatus>('POST', '/storage/retry'),
   sync: () => request<SyncStatus>('GET', '/sync'),
   mergeConflict: (path: string) => request<{ merged: number }>('POST', '/sync/merge', { path }),
+  /** Copies a secret natively (kept out of Windows clipboard history) and clears it after `seconds`. */
+  copySecret: (text: string, seconds: number) => request<{ native: boolean }>('POST', '/clipboard/copy', { text, seconds }),
   /** The Mac app clears the clipboard after `seconds` if it still holds the secret with this SHA-256. */
   clearClipboard: (hash: string, seconds: number) => request<{ native: boolean }>('POST', '/clipboard/clear', { hash, seconds }),
   installUpdate: () => request<{ ok: true }>('POST', '/update/install'),

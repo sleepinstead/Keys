@@ -9,6 +9,7 @@ pub mod error;
 pub mod extension;
 pub mod favicon;
 pub mod importexport;
+pub mod os;
 pub mod session;
 pub mod sharing;
 pub mod storage;

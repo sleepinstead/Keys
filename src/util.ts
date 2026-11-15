@@ -81,6 +81,8 @@ export function downloadBytes(filename: string, mime: string, base64: string): v
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const modKey = isMac ? '⌘' : 'Ctrl';
+/** Cloud folders people keep the database in, as this system names them. */
+export const cloudFolders = isMac ? 'iCloud Drive, Google Drive' : 'OneDrive, Google Drive';
 
 export function isTypingTarget(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;

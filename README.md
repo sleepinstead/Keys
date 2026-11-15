@@ -20,14 +20,14 @@ I built it for people who want a private, simple place for their passwords witho
 
 ## Built with
 
-- Rust (Tauri, axum) for the Mac app and its local server
+- Rust (Tauri, axum) for the Mac and Windows app and its local server
 - React, TypeScript and Vite for the interface
 - SQLite for storage
 - Argon2id and AES-256-GCM for encryption
 
 ## Getting started
 
-Download **Keys for Mac** from [Releases](https://github.com/sleepinstead/Keys/releases), unzip it and drag **Keys.app** to Applications. The first time, Keys walks you through a short setup where you choose how to unlock it. It updates itself.
+Download Keys from [Releases](https://github.com/sleepinstead/Keys/releases). **Mac:** unzip it and drag **Keys.app** to Applications. **Windows:** run the setup `.exe` (if Windows says it protected your PC, choose **More info → Run anyway**; the installer isn't code-signed yet). The first time, Keys walks you through a short setup where you choose how to unlock it. It updates itself.
 
 To work on the code you need Node.js 24.7+ and Rust. Run `npm install`, then `npm run dev` (the Rust server plus live-reloading UI) and open http://localhost:5173.
 
@@ -68,7 +68,7 @@ A few things to know:
 ## Project layout
 
 ```
-desktop/     Rust: keys-core (API, encryption, storage) and the Mac app
+desktop/     Rust: keys-core (API, encryption, storage) and the desktop app (Mac, Windows)
 src/         React interface
 shared/      types and the password generator
 extension/   browser extension

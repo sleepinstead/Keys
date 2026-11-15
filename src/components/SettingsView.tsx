@@ -11,7 +11,7 @@ import { isWeakPin } from '../../shared/generator.ts';
 import { CREDENTIAL_NAMES, choiceFromCredential, CredentialPicker, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
 import { encodePattern, passphraseProblem, passphraseWords } from '../../shared/credential.ts';
-import { downloadBytes, downloadFile, plural, timeAgo, TYPE_LABELS } from '../util.ts';
+import { cloudFolders, downloadBytes, downloadFile, plural, timeAgo, TYPE_LABELS } from '../util.ts';
 import { StorageDialog } from './StorageDialog.tsx';
 import { ColorMenu } from './ColorMenu.tsx';
 import { Select } from './Select.tsx';
@@ -271,7 +271,7 @@ function formatSize(bytes: number | null): string {
 }
 
 /** The same file on other computers: who else has it open, and conflict copies to merge. */
-/** Keys for Mac only: its version, a manual update check, and automatic checks. */
+/** The desktop app only: its version, a manual update check, and automatic checks. */
 function UpdatesSection() {
   const toast = useToast();
   const [info, setInfo] = useState<{ native: boolean; version?: string; autoUpdate?: boolean } | null>(null);
@@ -324,10 +324,10 @@ function UpdatesSection() {
     : result?.state === 'available' ? `Keys ${result.version} is available.`
     : result?.state === 'installing' ? 'Updating… Keys restarts when it’s done.'
     : result?.state === 'failed' ? 'Couldn’t reach GitHub. Check your connection and try again.'
-    : 'Looks for a newer Keys for Mac. Nothing about you or your vault is sent.';
+    : 'Looks for a newer version of Keys. Nothing about you or your vault is sent.';
 
   return (
-    <Section title="Updates" icon={<ArrowDownToLine size={17} />} size="narrow" lede={`Keys for Mac ${info.version}`}>
+    <Section title="Updates" icon={<ArrowDownToLine size={17} />} size="narrow" lede={`Keys ${info.version}`}>
       <div className="group">
         <div className="setting-row">
           <div>
@@ -446,7 +446,7 @@ function StorageSection({ storage, credential, onMoved }: { storage: StorageInfo
   }
 
   return (
-    <Section title="Database" icon={<HardDrive size={17} />} size="wide" lede="Keep the file anywhere: a folder, iCloud Drive, Google Drive.">
+    <Section title="Database" icon={<HardDrive size={17} />} size="wide" lede={`Keep the file anywhere: a folder, ${cloudFolders}.`}>
       <div className="storage-file">
         <span className="storage-file-path" title={storage.path}>
           {/* Break long paths only after a slash, never inside a folder or file name. */}

@@ -1,8 +1,8 @@
 [package]
 name = "keys-app"
-version = "0.2.12"
+version = "0.3.0"
 edition = "2024"
-description = "Keys for Mac"
+description = "Keys for Mac and Windows"
 publish = false
 
 [build-dependencies]
@@ -10,7 +10,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 keys-core = { path = "../core" }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tokio = { version = "1", features = ["net", "time"] }
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
@@ -18,3 +18,6 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-log = "2"
 log = "0.4"
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.17", default-features = false }

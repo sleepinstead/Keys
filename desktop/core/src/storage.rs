@@ -9,9 +9,9 @@ use serde::Serialize;
 use crate::error::{HttpError, Result};
 use crate::store::{Store, inspect_database};
 
-/// ~/Library/Application Support/Keys on macOS.
+/// ~/Library/Application Support/Keys on macOS, %APPDATA%\\Keys on Windows.
 pub fn config_dir() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
+    let home = crate::os::home();
     if cfg!(target_os = "macos") {
         home.join("Library/Application Support/Keys")
     } else if cfg!(windows) {
@@ -37,7 +37,7 @@ pub struct StorageInfo {
 }
 
 fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"))
+    crate::os::home()
 }
 
 /// Lexical normalisation like Node's path.normalize (no filesystem access).
@@ -84,13 +84,17 @@ pub fn normalize_path(raw: Option<&str>) -> Result<PathBuf> {
     if let Some(rest) = p.strip_prefix("file://") {
         let path = rest.strip_prefix("localhost").unwrap_or(rest);
         p = percent_decode(path).ok_or_else(|| HttpError::new(400, "That location isn’t valid"))?;
+        // file:///C:/Users/… on Windows
+        if cfg!(windows) && p.len() > 3 && p.as_bytes()[0] == b'/' && p.as_bytes()[2] == b':' && p.as_bytes()[1].is_ascii_alphabetic() {
+            p.remove(0);
+        }
     }
     if p == "~" || p.starts_with("~/") {
         p = home().join(p.trim_start_matches('~').trim_start_matches('/')).to_string_lossy().into_owned();
     }
     let path = PathBuf::from(&p);
     if !path.is_absolute() {
-        return Err(HttpError::new(400, "Use the full location, starting with / or ~/"));
+        return Err(HttpError::new(400, if cfg!(windows) { "Use the full location, like C:\\Users\\you\\Keys.sqlite" } else { "Use the full location, starting with / or ~/" }));
     }
     if p.len() > 4096 || p.contains('\0') {
         return Err(HttpError::new(400, "That location isn’t valid"));
@@ -160,7 +164,7 @@ impl Storage {
             available: self.available(),
             error: self.error.clone(),
             size,
-            can_browse: cfg!(target_os = "macos"),
+            can_browse: cfg!(any(target_os = "macos", windows)),
         }
     }
 
@@ -247,7 +251,7 @@ impl Storage {
         if self.file == self.default_file {
             if let Some(dir) = self.file.parent() {
                 let _ = fs::create_dir_all(dir);
-                let _ = fs::set_permissions(dir, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+                let _ = crate::os::make_private(dir, true);
             }
         } else if let Err(e) = inspect_database(&self.file) {
             self.error = Some(format!("{e}. If it’s in iCloud Drive or Google Drive, check it’s downloaded to this device."));
@@ -295,7 +299,7 @@ impl Storage {
         }
         let tmp = pointer.with_extension("json.tmp");
         fs::write(&tmp, serde_json::to_string_pretty(&serde_json::json!({ "path": file }))?)?;
-        fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+        crate::os::make_private(&tmp, false)?;
         fs::rename(&tmp, pointer)
     }
 }
@@ -303,8 +307,20 @@ impl Storage {
 /// Native macOS file dialogs via AppleScript (Finder, iCloud Drive and Google Drive included).
 /// Returns None if the person cancels.
 pub async fn browse(save: bool) -> Result<Option<String>> {
+    #[cfg(windows)]
+    {
+        // The standard Windows file dialog (OneDrive and Google Drive folders included).
+        let picked = tokio::task::spawn_blocking(move || {
+            let dialog = rfd::FileDialog::new().add_filter("Keys database", &["sqlite"]).add_filter("All files", &["*"]);
+            if save { dialog.set_title("Save the Keys database as").set_file_name("Keys.sqlite").save_file() } else { dialog.set_title("Choose your Keys database").pick_file() }
+        })
+        .await
+        .map_err(|_| HttpError::new(500, "The file dialog couldn’t be opened"))?;
+        return Ok(picked.map(|p| p.to_string_lossy().into_owned()));
+    }
+    #[allow(unreachable_code)]
     if !cfg!(target_os = "macos") {
-        return Err(HttpError::new(501, "Browsing is only available on macOS. Paste the file’s location instead"));
+        return Err(HttpError::new(501, "Browsing isn’t available here. Paste the file’s location instead"));
     }
     let script = if save {
         "POSIX path of (choose file name with prompt \"Save the Keys database as\" default name \"Keys.sqlite\")"

@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Check, Copy, Folder, Monitor, Moon, Sun, X } from 'lucide-react';
 import { api } from '../api.ts';
 import { dialog, fade, pop, quick } from '../motion.ts';
+import { isMac } from '../util.ts';
 import { CATEGORY_COLORS } from '../../shared/types.ts';
 import type { Appearance, CategoryColor, EntryType, StrengthResult } from '../../shared/types.ts';
 
@@ -170,7 +171,9 @@ function keyParts(combo: string): string[] {
   const parts: string[] = [];
   let rest = combo;
   for (let m = rest.match(/^(⌘|⇧|⌥|⌃|Ctrl\+?|Shift\+?|Alt\+?)/); m && rest.length > m[1]!.length; m = rest.match(/^(⌘|⇧|⌥|⌃|Ctrl\+?|Shift\+?|Alt\+?)/)) {
-    parts.push(m[1]!.replace('+', ''));
+    const key = m[1]!.replace('+', '');
+    // Windows names modifier keys in words.
+    parts.push(isMac ? key : key === '⇧' ? 'Shift' : key === '⌥' ? 'Alt' : key);
     rest = rest.slice(m[1]!.length);
   }
   if (rest) parts.push(rest);

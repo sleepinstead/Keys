@@ -2,7 +2,6 @@
 //! non-secret settings reach this layer.
 
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -147,7 +146,7 @@ impl Store {
         }
         if !store.in_memory() {
             // Some synced folders don't support permissions; the contents are encrypted anyway.
-            let _ = fs::set_permissions(&store.file, fs::Permissions::from_mode(0o600));
+            let _ = crate::os::make_private(&store.file, false);
         }
         store.remember();
         Ok(store)
@@ -182,7 +181,8 @@ impl Store {
             return None;
         }
         let m = fs::metadata(&self.file).ok()?;
-        Some(Seen { ino: m.ino(), dev: m.dev(), size: m.size(), mtime_ns: m.mtime() as i128 * 1_000_000_000 + m.mtime_nsec() as i128 })
+        let (ino, dev, size, mtime_ns) = crate::os::identity(&m);
+        Some(Seen { ino, dev, size, mtime_ns })
     }
 
     /// The file was there and now isn't (deleted, or moved away by a sync app). SQLite would keep

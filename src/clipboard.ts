@@ -24,14 +24,18 @@ async function wipe(): Promise<void> {
 }
 
 export async function copyText(text: string, clearAfterSeconds: number): Promise<void> {
-  await navigator.clipboard.writeText(text);
   window.clearTimeout(timer);
   pendingWipe = false;
   timer = undefined;
   lastHash = null;
-  if (clearAfterSeconds <= 0) return;
+  if (clearAfterSeconds <= 0) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Secrets: the desktop app copies and clears them itself.
   const hash = await sha256(text);
-  const native = await api.clearClipboard(hash, clearAfterSeconds).then((r) => r.native, () => false);
+  const native = await api.copySecret(text, clearAfterSeconds).then((r) => r.native, () => false);
+  if (!native) await navigator.clipboard.writeText(text);
   if (native) {
     lastHash = hash;
     timer = window.setTimeout(() => {

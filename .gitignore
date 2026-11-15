@@ -9,7 +9,10 @@ dist
 *.sqlite
 *.sqlite-journal
 coverage/
-.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/windows.yml
 *.zip
 CLAUDE.md
 AGENTS.md
@@ -32,3 +35,4 @@ dist-phone
 desktop/target
 desktop/app/gen
 dist-mac
+dist-win

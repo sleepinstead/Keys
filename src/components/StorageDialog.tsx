@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api.ts';
 import type { Credential, StorageInfo, VaultStatus } from '../../shared/types.ts';
 import { CREDENTIAL_NAMES } from './credential.tsx';
 import { Button, Dialog, OtpInput } from './ui.tsx';
+import { cloudFolders } from '../util.ts';
 
 export type StorageMode = 'connect' | 'create' | 'move' | 'default' | 'wipe';
 
@@ -132,8 +133,8 @@ export function StorageDialog({
               )}
             </div>
             <div className="field-hint">
-              {storage.canBrowse ? 'Browse, or paste the full location.' : 'Paste the full location, like ~/Documents/Keys.sqlite.'} iCloud Drive and Google Drive work when the
-              file is kept on this device.
+              {storage.canBrowse ? 'Browse, or paste the full location.' : 'Paste the full location, like ~/Documents/Keys.sqlite.'} {cloudFolders.replace(', ', ' and ')} work when the file is
+              kept on this device.
             </div>
           </div>
           )}

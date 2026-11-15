@@ -194,7 +194,7 @@ impl Inner {
         }
         let tmp = file.with_extension("json.tmp");
         std::fs::write(&tmp, all.to_string()).map_err(|_| failed())?;
-        let _ = std::fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o600));
+        let _ = crate::os::make_private(&tmp, false);
         std::fs::rename(&tmp, &file).map_err(|_| failed())
     }
 
@@ -661,6 +661,25 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         // Clears a copied secret after a delay, even while Keys is in the background, and only if the
         // clipboard still holds it (compared by SHA-256), so something copied since is never erased.
         // No session needed: locking clears it too. The page sends only the hash, never the secret.
+        // Copies a secret natively (on Windows kept out of clipboard history and cloud sync) and
+        // clears it after `seconds`, like the route below. Needs the unlocked session.
+        ("POST", ["clipboard", "copy"]) => {
+            app.lock().key_for(token, true)?;
+            let text = secret(body.get("text"), "Text", 65_536)?;
+            let secs = body.get("seconds").and_then(Value::as_u64).unwrap_or(0).min(3600);
+            if !crate::clipboard::SUPPORTED {
+                return ok(json!({ "native": false }));
+            }
+            let hash = crate::clipboard::hash(text.as_bytes());
+            let copied = tokio::task::spawn_blocking(move || crate::clipboard::copy(&text)).await.unwrap_or(false);
+            if copied && secs > 0 {
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+                    let _ = tokio::task::spawn_blocking(move || crate::clipboard::clear_if(&hash)).await;
+                });
+            }
+            ok(json!({ "native": copied }))
+        }
         ("POST", ["clipboard", "clear"]) => {
             let hash = require_string(body.get("hash"), "Hash", 64)?.to_ascii_lowercase();
             let secs = body.get("seconds").and_then(Value::as_u64).unwrap_or(0).min(3600);

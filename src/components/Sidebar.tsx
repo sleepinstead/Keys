@@ -386,7 +386,7 @@ function summary(notes: string): string {
   return '';
 }
 
-/** Keys for Mac found a newer version: one click downloads it, checks its signature, and restarts. */
+/** The desktop app found a newer version: one click downloads it, checks its signature, and restarts. */
 function UpdateCard({ update, collapsed }: { update: AppUpdate; collapsed: boolean }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(false);

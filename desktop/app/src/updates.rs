@@ -12,6 +12,7 @@ use std::time::Duration;
 use keys_core::api::Shared;
 use keys_core::storage::config_dir;
 use serde_json::{Value, json};
+#[cfg(target_os = "macos")]
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -30,7 +31,7 @@ fn report(app: &AppHandle, update: &Update, state: &str) {
 fn report_progress(app: &AppHandle, update: &Update, state: &str, progress: Option<u8>) {
     let notes: String = update.body.clone().unwrap_or_default().chars().take(700).collect();
     let current = app.package_info().version.to_string();
-    let url = format!("https://github.com/sleepinstead/Keys/releases/tag/mac-v{}", update.version);
+    let url = format!("https://github.com/sleepinstead/Keys/releases/tag/v{}", update.version);
     app.state::<Shared>().set_update(Some(json!({
         "version": update.version, "current": current, "notes": notes.trim(), "state": state,
         "progress": progress, "releaseUrl": url,
@@ -86,7 +87,8 @@ pub async fn install(app: AppHandle) {
         Err(e) => Err(e),
     };
     match installed {
-        // A clean restart: the quit handler locks the vault and removes this Mac's marker first.
+        // A clean restart: the quit handler locks the vault and removes this computer's marker first.
+        // (On Windows the installer takes over and Keys exits; it reopens when the install is done.)
         Ok(()) => app.request_restart(),
         Err(e) => {
             INSTALLING.store(false, Ordering::SeqCst);
@@ -123,7 +125,8 @@ pub fn set_auto(on: bool) {
     let _ = std::fs::write(prefs_file(), json!({ "auto": on }).to_string());
 }
 
-/// The standard Mac menus, plus "Check for Updates…" and the automatic-checks switch under Keys.
+/// macOS: the standard Mac menus, plus "Check for Updates…" and the automatic-checks switch under Keys.
+#[cfg(target_os = "macos")]
 pub fn menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
     if let Some(app_menu) = menu.items()?.first().and_then(|i| i.as_submenu().cloned()) {
