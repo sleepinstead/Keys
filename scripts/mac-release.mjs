@@ -86,6 +86,10 @@ const zipName = `Keys-mac-${version}-arm64.zip`;
 const tarball = path.join(out, updateName);
 run('tar', ['-czf', tarball, '-C', bundle, 'Keys.app']);
 run('ditto', ['-c', '-k', '--keepParent', path.join(bundle, 'Keys.app'), path.join(out, zipName)]);
+// The browser extension ships alongside the app, from what's committed (git archive, like before).
+const extVersion = JSON.parse(fs.readFileSync(path.join(root, 'extension/manifest.json'), 'utf8')).version;
+const extName = `Keys-extension-${extVersion}.zip`;
+run('git', ['archive', '--format=zip', `--prefix=Keys-extension/`, '-o', path.join(out, extName), 'HEAD:extension']);
 
 // Signed here, with the version bound into the signature (installed apps reject a feed that pairs a
 // new version number with an older package).
@@ -106,7 +110,7 @@ const latest = {
   },
 };
 fs.writeFileSync(path.join(out, 'latest.json'), JSON.stringify(latest, null, 2) + '\n');
-console.log(`\nBuilt in dist-mac/: ${zipName}, ${updateName} (signed), latest.json`);
+console.log(`\nBuilt in dist-mac/: ${zipName}, ${updateName} (signed), ${extName}, latest.json`);
 if (dry) process.exit(0);
 
 // Never move the feed backwards.
@@ -123,15 +127,15 @@ console.log(`\nPublishing ${tag}…`);
 const notesFile = path.join(out, 'notes.md');
 fs.writeFileSync(
   notesFile,
-  `${notes.trim()}\n\n## Install\n\nAlready using Keys for Mac 0.2.0 or later? It offers this update itself (it appears in the sidebar, or use Keys → Check for Updates…).\n\nOtherwise download **${zipName}**, unzip it and drag **Keys.app** to Applications. First time: System Settings → Privacy & Security → **Open Anyway**. For Apple silicon Macs, macOS 11 or later.\n`,
+  `${notes.trim()}\n\n## Install\n\nAlready using Keys for Mac 0.2.0 or later? It offers this update itself (it appears in the sidebar, or use Keys → Check for Updates…).\n\nOtherwise download **${zipName}**, unzip it and drag **Keys.app** to Applications. First time: System Settings → Privacy & Security → **Open Anyway**. For Apple silicon Macs, macOS 11 or later.\n\n## Browser extension ${extVersion}\n\nDownload **${extName}**, unzip it, open \`chrome://extensions\`, turn on **Developer mode** and drag the **Keys-extension** folder in (or replace your existing folder's files and click reload). Then use **Connect to Keys**.\n`,
 );
 // A draft first: nothing is public until every file is up, and a failed run can simply be rerun.
 if (!draftExists) {
-  run('gh', ['release', 'create', tag, '--repo', REPO, '--draft', '--target', read('git', ['rev-parse', 'HEAD']), '--title', `Keys for Mac ${version}`, '--notes-file', notesFile, '--latest=false', ...(pre ? ['--prerelease'] : [])]);
+  run('gh', ['release', 'create', tag, '--repo', REPO, '--draft', '--target', read('git', ['rev-parse', 'HEAD']), '--title', `Keys ${version}`, '--notes-file', notesFile, '--latest=false', ...(pre ? ['--prerelease'] : [])]);
 }
-run('gh', ['release', 'upload', tag, path.join(out, zipName), tarball, '--repo', REPO, '--clobber']);
+run('gh', ['release', 'upload', tag, path.join(out, zipName), tarball, path.join(out, extName), '--repo', REPO, '--clobber']);
 const assets = read('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'assets', '--jq', '[.assets[].name] | join(",")']).split(',');
-if (!assets.includes(zipName) || !assets.includes(updateName)) fail('Upload incomplete; rerun this command to finish.');
+if (![zipName, updateName, extName].every((n) => assets.includes(n))) fail('Upload incomplete; rerun this command to finish.');
 run('gh', ['release', 'edit', tag, '--repo', REPO, '--draft=false']);
 
 if (pre) {

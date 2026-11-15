@@ -107,8 +107,14 @@ async function pollPairing() {
   return { status: res.status };
 }
 
-/** Opens Keys, reusing a tab that already shows it. */
+/** Opens Keys: the Mac app's window if that's what's running, otherwise a tab (reused if open). */
 async function openApp(hash = '') {
+  try {
+    const shown = await keys('/show', { method: 'POST', body: { hash } });
+    if (shown?.shown) return;
+  } catch {
+    /* Keys in the browser (or an older version): open a tab */
+  }
   let appUrl;
   try {
     appUrl = (await state()).appUrl;

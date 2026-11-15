@@ -57,6 +57,8 @@ pub struct App {
     update: Mutex<Option<Value>>,
     /// Starts installing that update (set by the Mac app; absent in the plain server).
     install: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// Brings the Mac app's window forward (the extension's "Open Keys"); absent in the plain server.
+    show: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 pub type Shared = Arc<App>;
@@ -81,7 +83,14 @@ impl App {
         }
         inner.vault_id = inner.current_vault_id();
         let app_url = format!("http://localhost:{port}");
-        Arc::new(App { inner: Mutex::new(inner), origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")], app_url, update: Mutex::new(None), install: std::sync::OnceLock::new() })
+        Arc::new(App {
+            inner: Mutex::new(inner),
+            origins: vec![app_url.clone(), format!("http://127.0.0.1:{port}")],
+            app_url,
+            update: Mutex::new(None),
+            install: std::sync::OnceLock::new(),
+            show: std::sync::OnceLock::new(),
+        })
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -96,6 +105,11 @@ impl App {
     /// What "Update & restart" in the sidebar runs.
     pub fn on_install(&self, run: impl Fn() + Send + Sync + 'static) {
         let _ = self.install.set(Box::new(run));
+    }
+
+    /// What the extension's "Open Keys" runs in the Mac app.
+    pub fn on_show(&self, run: impl Fn() + Send + Sync + 'static) {
+        let _ = self.show.set(Box::new(run));
     }
 
     /// Locks after the idle time; the app calls this every second.
@@ -1125,6 +1139,15 @@ async fn extension_route(app: &App, method: &Method, path: &str, query: Option<&
     let q = |name: &str| query.and_then(|q| url::form_urlencoded::parse(q.as_bytes()).find(|(k, _)| k == name).map(|(_, v)| v.into_owned()));
 
     match (method.as_str(), parts.as_slice()) {
+        // "Open Keys" from the extension: the Mac app shows its window instead of a browser tab opening.
+        // Harmless to anyone (it only brings Keys forward), so it works before pairing too.
+        ("POST", ["show"]) => match app.show.get() {
+            Some(show) => {
+                show();
+                ok(json!({ "shown": true }))
+            }
+            None => ok(json!({ "shown": false })),
+        },
         ("POST", ["pair"]) => {
             let mut g = app.lock();
             g.sweep();

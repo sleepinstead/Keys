@@ -84,6 +84,8 @@ fn main() {
             let storage = Storage::open(Some(config_dir().join("location.json")), default_db_file());
             let keys = keys_core::api::App::new(storage, port);
             let _ = keys_slot.set(keys.clone());
+            let front = app.handle().clone();
+            keys.on_show(move || show_main(&front));
             app.manage(keys.clone());
             app.manage(updates::Pending::default());
             let handle = app.handle().clone();
