@@ -202,6 +202,12 @@ export interface AppUpdate {
   version: string;
   notes: string;
   state: 'available' | 'installing' | 'failed';
+  /** The version running now. */
+  current?: string;
+  /** Download progress while installing, 0–100 (null until the size is known). */
+  progress?: number | null;
+  /** The release page with the full notes. */
+  releaseUrl?: string;
 }
 
 export interface VaultStatus {

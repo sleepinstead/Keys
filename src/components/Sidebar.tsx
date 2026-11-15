@@ -374,6 +374,18 @@ export function Sidebar({
   );
 }
 
+/** Ask the page to refresh its sync status now (the update card does, so progress shows at once). */
+export const SYNC_NOW = 'keys:sync-now';
+
+/** The first real line of the release notes ("## What's new", bullets and **bold** stripped). */
+function summary(notes: string): string {
+  for (const raw of notes.split('\n')) {
+    const line = raw.replace(/^\s*(#+|[-*•]|\d+\.)\s*/, '').replace(/\*\*|__|`/g, '').trim();
+    if (line && !/^(what'?s new|what’s new|changes|fixes|improvements)\b:?$/i.test(line)) return line;
+  }
+  return '';
+}
+
 /** Keys for Mac found a newer version: one click downloads it, checks its signature, and restarts. */
 function UpdateCard({ update, collapsed }: { update: AppUpdate; collapsed: boolean }) {
   const [starting, setStarting] = useState(false);
@@ -384,11 +396,14 @@ function UpdateCard({ update, collapsed }: { update: AppUpdate; collapsed: boole
     setError(update.state === 'failed');
   }, [update.state]);
   const busy = starting || update.state === 'installing';
+  const pct = busy && typeof update.progress === 'number' ? update.progress : null;
+  const phase = pct === null ? 'Getting ready…' : pct < 100 ? `Downloading… ${pct}%` : 'Installing…';
   const install = async () => {
     setStarting(true);
     setError(false);
     try {
       await api.installUpdate();
+      window.dispatchEvent(new Event(SYNC_NOW));
     } catch {
       setStarting(false);
       setError(true);
@@ -397,28 +412,50 @@ function UpdateCard({ update, collapsed }: { update: AppUpdate; collapsed: boole
   if (collapsed) {
     // Folded: just the download button, its state in the tooltip.
     return (
-      <Tooltip content={busy ? 'Updating Keys…' : error ? 'Update didn’t install · Try again' : `Update to Keys ${update.version}`} side="right">
-        <button type="button" className="update-rail" onClick={() => void install()} disabled={busy} aria-label={busy ? 'Updating Keys' : `Update to Keys ${update.version}`}>
+      <Tooltip content={busy ? phase : error ? 'Update didn’t install · Try again' : `Update to Keys ${update.version}`} side="right">
+        <button type="button" className="update-rail" onClick={() => void install()} disabled={busy} aria-label={busy ? `Updating Keys. ${phase}` : `Update to Keys ${update.version}`}>
           {busy ? <span className="update-spinner" aria-hidden="true" /> : <ArrowDownToLine size={16} />}
         </button>
       </Tooltip>
     );
   }
+  const note = summary(update.notes);
   return (
-    <div className="update-card" title={update.notes || undefined}>
-      <span className="update-icon" aria-hidden="true">
-        <ArrowDownToLine size={15} />
-      </span>
-      <span className="update-text">
-        <strong>{busy ? 'Updating…' : error ? 'Update failed' : 'New version'}</strong>
-        <small>{busy ? 'Restarts when done' : `Keys ${update.version}`}</small>
-      </span>
-      {!busy && (
-        <button type="button" className="update-btn" onClick={() => void install()}>
-          {error ? 'Try again' : 'Update'}
-        </button>
+    <div className={`update-card${busy ? ' is-busy' : ''}${error ? ' is-failed' : ''}`}>
+      <div className="update-head">
+        <span className="update-icon" aria-hidden="true">
+          {busy ? <span className="update-spinner" /> : <ArrowDownToLine size={15} />}
+        </span>
+        <span className="update-text">
+          <strong>{busy ? 'Updating Keys' : error ? 'Update didn’t install' : 'Update available'}</strong>
+          <small>
+            {update.current ? `${update.current} → ` : ''}
+            <b>{update.version}</b>
+          </small>
+        </span>
+      </div>
+      {busy ? (
+        <div className="update-progress" role="progressbar" aria-label="Update download" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined} aria-valuetext={phase}>
+          <div className={`update-bar${pct === null ? ' is-indeterminate' : ''}`}>
+            <span style={{ width: `${pct ?? 30}%` }} />
+          </div>
+          <small>{phase} · Restarts when done</small>
+        </div>
+      ) : (
+        <>
+          {error ? <p className="update-note">Check your connection and try again. Your vault wasn’t touched.</p> : note && <p className="update-note">{note}</p>}
+          <div className="update-actions">
+            <button type="button" className="update-btn" onClick={() => void install()}>
+              {error ? 'Try again' : 'Update & restart'}
+            </button>
+            {update.releaseUrl && (
+              <a className="update-link" href={update.releaseUrl} target="_blank" rel="noreferrer">
+                What’s new
+              </a>
+            )}
+          </div>
+        </>
       )}
-      {busy && <span className="update-spinner" aria-label="Updating" />}
     </div>
   );
 }

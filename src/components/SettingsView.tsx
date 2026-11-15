@@ -118,13 +118,23 @@ export function SettingsView({
       live = false;
     };
   }, []);
+  const [version, setVersion] = useState<string | undefined>();
+  useEffect(() => {
+    api.appInfo().then(
+      (i) => setVersion(i.version),
+      () => undefined,
+    );
+  }, []);
   const credential: Credential = vaultStatus?.credential ?? { type: 'password' };
   if (!browsers) return null;
 
   return (
     <div className="page page-wide">
       <header className="page-head">
-        <h1>Settings</h1>
+        <h1>
+          Settings
+          {version && <span className="version-pill" title="The version of Keys you’re running">Keys {version}</span>}
+        </h1>
         <p className="page-lede">Everything here is saved encrypted in your database file.</p>
       </header>
 

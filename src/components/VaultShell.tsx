@@ -18,7 +18,7 @@ import type { EditorState } from './EntryEditor.tsx';
 import { EntryList } from './EntryList.tsx';
 import { GeneratorView } from './Generator.tsx'; // already in the main bundle (the editor uses it)
 import type { Sort } from './EntryList.tsx';
-import { Sidebar, viewKey } from './Sidebar.tsx';
+import { Sidebar, SYNC_NOW, viewKey } from './Sidebar.tsx';
 import type { Filter, View } from './Sidebar.tsx';
 import { AppMark, EmptyState, IconButton, Kbd } from './ui.tsx';
 
@@ -243,15 +243,24 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         busy = false;
       }
     };
+    // Every 8s; every second while an update downloads, so its progress bar moves.
+    let ticks = 0;
     void look();
-    const timer = window.setInterval(() => void look(), 8000);
+    const timer = window.setInterval(() => {
+      if (++ticks >= 8 || lastSync.current.includes('"state":"installing"')) {
+        ticks = 0;
+        void look();
+      }
+    }, 1000);
     const onFront = () => void look();
     window.addEventListener('focus', onFront);
+    window.addEventListener(SYNC_NOW, onFront);
     document.addEventListener('visibilitychange', onFront);
     return () => {
       stopped = true;
       window.clearInterval(timer);
       window.removeEventListener('focus', onFront);
+      window.removeEventListener(SYNC_NOW, onFront);
       document.removeEventListener('visibilitychange', onFront);
     };
   }, [loadEntries, loadCategories, refreshAudit, refreshTrash, toast]);

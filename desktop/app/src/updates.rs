@@ -22,8 +22,19 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 pub struct Pending(Mutex<Option<Update>>);
 
 fn report(app: &AppHandle, update: &Update, state: &str) {
+    report_progress(app, update, state, None);
+}
+
+/// What the sidebar card shows: version, notes, state, download progress (0–100) and where the
+/// full release notes are.
+fn report_progress(app: &AppHandle, update: &Update, state: &str, progress: Option<u8>) {
     let notes: String = update.body.clone().unwrap_or_default().chars().take(700).collect();
-    app.state::<Shared>().set_update(Some(json!({ "version": update.version, "notes": notes.trim(), "state": state })));
+    let current = app.package_info().version.to_string();
+    let url = format!("https://github.com/sleepinstead/Keys/releases/tag/mac-v{}", update.version);
+    app.state::<Shared>().set_update(Some(json!({
+        "version": update.version, "current": current, "notes": notes.trim(), "state": state,
+        "progress": progress, "releaseUrl": url,
+    })));
 }
 
 /// Downloads, checks the signature, installs and restarts. On failure the sidebar says so.
@@ -33,14 +44,26 @@ static INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 
 /// Downloads the package, trying each mirror listed in latest.json and then its main address. Every
 /// copy must carry the Keys update signature, so a mirror can at worst hold an update back.
-async fn download(update: &Update) -> Result<Vec<u8>, String> {
+async fn download(app: &AppHandle, update: &Update) -> Result<Vec<u8>, String> {
     let mut sources: Vec<tauri::Url> = update.raw_json["mirrors"].as_array().into_iter().flatten().filter_map(|m| m.as_str()?.parse().ok()).filter(|u: &tauri::Url| u.scheme() == "https").collect();
     sources.push(update.download_url.clone());
     let mut last = String::from("no download address");
     for url in sources {
         let mut copy = update.clone();
         copy.download_url = url;
-        match copy.download(|_, _| {}, || {}).await {
+        // Progress for the sidebar card, in steps of 2% so the page isn't flooded.
+        let (mut got, mut shown) = (0usize, 0u8);
+        let on_chunk = |len: usize, total: Option<u64>| {
+            got += len;
+            if let Some(total) = total.filter(|t| *t > 0) {
+                let pct = ((got as f64 / total as f64) * 100.0).min(100.0) as u8;
+                if pct >= shown.saturating_add(2) || pct == 100 {
+                    shown = pct;
+                    report_progress(app, update, "installing", Some(pct));
+                }
+            }
+        };
+        match copy.download(on_chunk, || {}).await {
             Ok(bytes) => return Ok(bytes),
             Err(e) => last = e.to_string(),
         }
@@ -58,7 +81,7 @@ pub async fn install(app: AppHandle) {
         return;
     };
     report(&app, &update, "installing");
-    let installed = match download(&update).await {
+    let installed = match download(&app, &update).await {
         Ok(bytes) => update.install(bytes).map_err(|e| e.to_string()),
         Err(e) => Err(e),
     };

@@ -6001,32 +6001,47 @@ button.sync-note {
 /* Keys for Mac: a newer version is ready (sidebar, above Lock). */
 .update-card {
   flex: 1 0 100%;
+  display: grid;
+  gap: 9px;
+  margin: 0 0 8px;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--good) 28%, var(--border));
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--good) 7%, transparent), transparent 70%),
+    var(--bg);
+  box-shadow: var(--shadow-xs);
+  animation: update-in 0.35s var(--ease) both;
+}
+.update-card.is-failed {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: var(--bg);
+}
+.update-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 8px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  box-shadow: var(--shadow-xs);
-  animation: update-in 0.35s var(--ease) both;
+  min-width: 0;
 }
 .update-icon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--good) 12%, transparent);
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--good) 14%, transparent);
   color: var(--good-text);
+}
+.update-card.is-failed .update-icon {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 .update-text {
   flex: 1;
   min-width: 0;
   display: grid;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 .update-text strong {
   overflow: hidden;
@@ -6039,12 +6054,32 @@ button.sync-note {
   overflow: hidden;
   color: var(--text-3);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.update-text small b {
+  color: var(--good-text);
+  font-weight: 600;
+}
+.update-note {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .update-btn {
-  flex: none;
-  padding: 5px 10px;
+  flex: 1;
+  padding: 6px 10px;
   border: 0;
   border-radius: 8px;
   background: var(--primary);
@@ -6057,13 +6092,49 @@ button.sync-note {
 .update-btn:hover {
   background: var(--primary-hover);
 }
+.update-link {
+  flex: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.update-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.update-progress {
+  display: grid;
+  gap: 6px;
+}
+.update-progress small {
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+.update-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--good) 14%, var(--bg-subtle, transparent));
+}
+.update-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--good);
+  transition: width 0.6s var(--ease);
+}
+.update-bar.is-indeterminate > span {
+  animation: update-slide 1.2s ease-in-out infinite;
+}
 .update-spinner {
   flex: none;
-  width: 16px;
-  height: 16px;
-  margin-right: 4px;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--text);
+  width: 15px;
+  height: 15px;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: update-spin 0.8s linear infinite;
 }
@@ -6078,17 +6149,36 @@ button.sync-note {
     transform: rotate(360deg);
   }
 }
+@keyframes update-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .update-card {
+  .update-card,
+  .update-bar.is-indeterminate > span {
     animation: none;
   }
 }
 
-/* Long lists: rows far off screen skip layout and paint until scrolled near. */
-.entry-list > li {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 56px;
+/* Settings: the version of Keys, beside the page title. */
+.version-pill {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  vertical-align: middle;
 }
+
 
 /* Page titles stay put with a separator under them; only the content below scrolls. */
 .page-pane .page:not(.page-center) {
@@ -6150,7 +6240,6 @@ button.sync-note {
 /* Very long lists render only what's on screen, so each row has a fixed height there. */
 .entry-list.is-virtual > li {
   height: 56px;
-  content-visibility: visible;
 }
 .entry-list.is-virtual > li.list-letter {
   height: 31px;
