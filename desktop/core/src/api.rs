@@ -68,7 +68,8 @@ pub type Shared = Arc<App>;
 /// What the Mac app offers Settings: its version, a manual update check, and automatic checks.
 pub struct NativeApp {
     pub version: String,
-    pub check: Box<dyn Fn() + Send + Sync>,
+    /// Checks for a newer version and answers {state, version}, with no dialog.
+    pub check: Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>> + Send + Sync>,
     pub auto: Box<dyn Fn() -> bool + Send + Sync>,
     pub set_auto: Box<dyn Fn(bool) + Send + Sync>,
 }
@@ -646,8 +647,7 @@ async fn route(app: &App, method: &Method, path: &str, token: Option<&str>, body
         ("POST", ["update", "check"]) => {
             app.lock().key_for(token, true)?;
             let n = app.native.get().ok_or_else(|| HttpError::new(404, "Updates come through the Mac app"))?;
-            (n.check)();
-            ok(json!({ "ok": true }))
+            ok((n.check)().await)
         }
         ("PUT", ["update", "auto"]) => {
             app.lock().key_for(token, true)?;

@@ -146,24 +146,23 @@ export function SettingsView({
       {vaultStatus && !vaultStatus.storage.isDefault && <SharingSection sync={sync} onMerged={onMerged} />}
       <UpdatesSection />
 
-      <Section title="Icons" icon={<Shapes size={17} />} size="narrow" lede="Hidden kinds show as plain text rows.">
-        <div className="group">
-          {(Object.keys(TYPE_LABELS) as EntryType[]).map((type) => (
-            <div className="setting-row" key={type}>
-              <div>
-                <label htmlFor={`hide-icons-${type}`} className="setting-label">
-                  Hide icons in {TYPE_LABELS[type].many}
-                </label>
-                {type === 'login' && <div className="setting-desc">Also stops fetching website icons.</div>}
-              </div>
-              <Switch
-                id={`hide-icons-${type}`}
-                checked={settings.hideIcons[type]}
-                onChange={(v) => save({ hideIcons: { ...settings.hideIcons, [type]: v } })}
-                label={`Hide icons in ${TYPE_LABELS[type].many}`}
-              />
-            </div>
-          ))}
+      <Section title="Icons" icon={<Shapes size={17} />} size="narrow" lede="Kinds that are off show as plain text rows. Logins also fetch website icons.">
+        <div className="icon-chips" role="group" aria-label="Show icons for">
+          {(Object.keys(TYPE_LABELS) as EntryType[]).map((type) => {
+            const shown = !settings.hideIcons[type];
+            return (
+              <button
+                key={type}
+                type="button"
+                className="icon-chip"
+                aria-pressed={shown}
+                onClick={() => save({ hideIcons: { ...settings.hideIcons, [type]: shown } })}
+              >
+                {shown && <Check size={13} aria-hidden="true" />}
+                {TYPE_LABELS[type].many}
+              </button>
+            );
+          })}
         </div>
       </Section>
 
@@ -267,6 +266,7 @@ function UpdatesSection() {
   const toast = useToast();
   const [info, setInfo] = useState<{ native: boolean; version?: string; autoUpdate?: boolean } | null>(null);
   const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<{ state: string; version?: string } | null>(null);
   useEffect(() => {
     let live = true;
     api.appInfo().then(
@@ -281,12 +281,22 @@ function UpdatesSection() {
 
   async function check() {
     setChecking(true);
+    setResult(null);
     try {
-      await api.checkForUpdates(); // the app answers in its own window: up to date, or the new version
+      setResult(await api.checkForUpdates());
     } catch (err) {
+      setResult({ state: 'failed' });
       toast(errorMessage(err), 'error');
     } finally {
-      window.setTimeout(() => setChecking(false), 1500);
+      setChecking(false);
+    }
+  }
+  async function install() {
+    try {
+      await api.installUpdate();
+      setResult({ state: 'installing' });
+    } catch (err) {
+      toast(errorMessage(err), 'error');
     }
   }
   async function setAuto(on: boolean) {
@@ -298,17 +308,33 @@ function UpdatesSection() {
     }
   }
 
+  const status =
+    checking ? 'Checking…'
+    : result?.state === 'current' ? 'You’re up to date.'
+    : result?.state === 'available' ? `Keys ${result.version} is available.`
+    : result?.state === 'installing' ? 'Updating… Keys restarts when it’s done.'
+    : result?.state === 'failed' ? 'Couldn’t reach GitHub. Check your connection and try again.'
+    : 'Looks for a newer Keys for Mac. Nothing about you or your vault is sent.';
+
   return (
     <Section title="Updates" icon={<ArrowDownToLine size={17} />} size="narrow" lede={`Keys for Mac ${info.version}`}>
       <div className="group">
         <div className="setting-row">
           <div>
             <div className="setting-label">Check for updates</div>
-            <div className="setting-desc">Looks for a newer Keys for Mac. Nothing about you or your vault is sent.</div>
+            <div className={`setting-desc${result?.state === 'failed' ? ' text-danger' : ''}`} role="status" aria-live="polite">
+              {status}
+            </div>
           </div>
-          <Button size="sm" variant="outline" loading={checking} onClick={() => void check()}>
-            Check now
-          </Button>
+          {result?.state === 'available' ? (
+            <Button size="sm" onClick={() => void install()}>
+              Update
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" loading={checking} disabled={result?.state === 'installing'} onClick={() => void check()}>
+              Check now
+            </Button>
+          )}
         </div>
         <div className="setting-row">
           <div>

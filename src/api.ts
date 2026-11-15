@@ -106,7 +106,8 @@ export const api = {
   installUpdate: () => request<{ ok: true }>('POST', '/update/install'),
   /** The Mac app's version and update settings ({ native: false } in the browser). */
   appInfo: () => request<{ native: boolean; version?: string; autoUpdate?: boolean }>('GET', '/app'),
-  checkForUpdates: () => request<{ ok: true }>('POST', '/update/check'),
+  /** Asks the Mac app to check now; answers in the page (no dialog). */
+  checkForUpdates: () => request<{ state: 'current' | 'available' | 'failed' | 'installing' | 'off'; version?: string }>('POST', '/update/check'),
   setAutoUpdate: (on: boolean) => request<{ autoUpdate: boolean }>('PUT', '/update/auto', { on }),
   browseStorage: (mode: 'open' | 'save') => request<{ path: string | null }>('POST', '/storage/browse', { mode }),
   storageTemplate: () => request<{ filename: string; data: string }>('GET', '/storage/template'),

@@ -6112,3 +6112,37 @@ button.sync-note {
 .page-pane .audit-side {
   top: calc(var(--page-head-h, 120px) + 24px);
 }
+
+/* Settings → Icons: one row of on/off chips instead of four switch rows. */
+.icon-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -6px;
+  padding: 0 0 18px; /* lines up with the card's text */
+}
+.icon-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.icon-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.icon-chip[aria-pressed='true'] {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+}

@@ -118,12 +118,24 @@ fn notice(app: &AppHandle, title: &str, text: &str, kind: MessageDialogKind) {
 }
 
 /// Looks for a newer version. `manual`: the person asked, so say "up to date" and show errors.
-pub async fn check(app: AppHandle, manual: bool) {
+/// Who asked: the scheduled check (quiet), the menu (answers in a dialog), or Settings (answers
+/// in the page, no dialog).
+#[derive(Clone, Copy, PartialEq)]
+pub enum Asked {
+    Auto,
+    Menu,
+    Settings,
+}
+
+/// Looks for a newer version. Returns what Settings shows: {state, version}.
+pub async fn check(app: AppHandle, asked: Asked) -> Value {
+    let manual = asked != Asked::Auto;
+    let dialogs = asked == Asked::Menu;
     if !manual && !auto_enabled() {
-        return;
+        return json!({ "state": "off" });
     }
     if INSTALLING.load(std::sync::atomic::Ordering::SeqCst) {
-        return;
+        return json!({ "state": "installing" });
     }
     // Never hang: a stalled network (some block GitHub's download server) fails after a while instead.
     let mut builder = app.updater_builder().timeout(Duration::from_secs(120)).configure_client(|c| c.connect_timeout(Duration::from_secs(10)).read_timeout(Duration::from_secs(30)));
@@ -132,7 +144,10 @@ pub async fn check(app: AppHandle, manual: bool) {
     if let Some(url) = std::env::var("KEYS_UPDATE_URL").ok().and_then(|u| u.parse().ok()) {
         builder = match builder.endpoints(vec![url]) {
             Ok(b) => b,
-            Err(e) => return log::warn!("update feed: {e}"),
+            Err(e) => {
+                log::warn!("update feed: {e}");
+                return json!({ "state": "failed" });
+            }
         };
     }
     let found = match builder.build() {
@@ -143,17 +158,17 @@ pub async fn check(app: AppHandle, manual: bool) {
     let update = match found {
         Ok(Some(u)) => u,
         Ok(None) => {
-            if manual {
+            if dialogs {
                 notice(&app, "You’re up to date", &format!("Keys {current} is the newest version."), MessageDialogKind::Info);
             }
-            return;
+            return json!({ "state": "current", "version": current });
         }
         Err(e) => {
             log::warn!("Update check failed: {e}");
-            if manual {
+            if dialogs {
                 notice(&app, "Couldn’t check for updates", "Keys couldn’t reach GitHub. Check your connection and try again.", MessageDialogKind::Warning);
             }
-            return;
+            return json!({ "state": "failed" });
         }
     };
 
@@ -163,13 +178,14 @@ pub async fn check(app: AppHandle, manual: bool) {
             Ok(bytes) => println!("update {} downloaded and signature verified ({} bytes)", update.version, bytes.len()),
             Err(e) => println!("update {} rejected: {e}", update.version),
         }
-        return;
+        return json!({ "state": "available", "version": update.version });
     }
 
     *app.state::<Pending>().0.lock().unwrap_or_else(|p| p.into_inner()) = Some(update.clone());
     report(&app, &update, "available");
-    if !manual {
-        return; // the sidebar shows it, above Lock
+    let found = json!({ "state": "available", "version": update.version });
+    if !dialogs {
+        return found; // the sidebar (and Settings) show it
     }
     let text = format!("You have {current}. Keys locks while it updates, then reopens. Your vault isn’t changed.");
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -184,6 +200,7 @@ pub async fn check(app: AppHandle, manual: bool) {
     if rx.await.unwrap_or(false) {
         install(app).await;
     }
+    found
 }
 
 /// Checks shortly after launch, then every few hours, while automatic checks are on.
@@ -191,7 +208,7 @@ pub fn schedule(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
         loop {
-            check(app.clone(), false).await;
+            check(app.clone(), Asked::Auto).await;
             tokio::time::sleep(CHECK_EVERY).await;
         }
     });

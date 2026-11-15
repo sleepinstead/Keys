@@ -62,7 +62,7 @@ fn main() {
         .menu(updates::menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             updates::MENU_CHECK => {
-                tauri::async_runtime::spawn(updates::check(app.clone(), true));
+                tauri::async_runtime::spawn(updates::check(app.clone(), updates::Asked::Menu));
             }
             updates::MENU_AUTO => updates::set_auto_everywhere(app, !updates::auto_enabled()),
             // ⌘, : the app's own Settings page.
@@ -90,9 +90,7 @@ fn main() {
             let (checker, auto) = (app.handle().clone(), app.handle().clone());
             keys.set_native(keys_core::api::NativeApp {
                 version: app.package_info().version.to_string(),
-                check: Box::new(move || {
-                    tauri::async_runtime::spawn(updates::check(checker.clone(), true));
-                }),
+                check: Box::new(move || Box::pin(updates::check(checker.clone(), updates::Asked::Settings))),
                 auto: Box::new(updates::auto_enabled),
                 set_auto: Box::new(move |on| updates::set_auto_everywhere(&auto, on)),
             });
