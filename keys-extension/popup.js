@@ -218,16 +218,8 @@ function unpaired(state) {
 
 function locked(state) {
   const type = state.credential?.type ?? 'password';
-  if (type === 'pattern') {
-    return hero(
-      'lock',
-      'Keys is locked',
-      'Your vault unlocks with a pattern. Draw it in Keys, then come back.',
-      h('div', { class: 'hero-actions' }, h('button', { type: 'button', class: 'btn btn-primary btn-lg btn-block', onClick: () => void openApp('') }, 'Unlock in Keys')),
-    );
-  }
   const pin = type === 'pin';
-  const name = { password: 'master password', passphrase: 'passphrase', pin: 'PIN' }[type];
+  const name = pin ? 'PIN' : 'master password';
   if (pin) return lockedPin(state.credential.length);
   const input = h('input', {
     class: 'input',

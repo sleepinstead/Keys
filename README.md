@@ -10,7 +10,7 @@ Keys is a password manager that runs on your own computer, in your browser. Your
 - **Generates passwords**, passphrases and PINs.
 - **Checks your passwords.** The security audit finds weak, old and breached passwords, and shows exactly which logins share the same one.
 - **Breach checks are optional** and use Have I Been Pwned. Your passwords never leave your computer.
-- **Unlocks your way:** a password, passphrase, PIN or pattern, plus an optional quick-unlock PIN.
+- **Unlocks your way:** a master password or a PIN, plus an optional quick-unlock PIN for a password vault.
 - **Has a safety net.** Deleted items go to Recently deleted first, and each item remembers its last 20 passwords.
 - **Imports and exports.** Bring logins over from Chrome, Firefox, Safari, 1Password, LastPass or Bitwarden. Export an encrypted backup, JSON or CSV.
 - **Feels quick.** Right-click any item for shortcuts, press `⌘K` to search, `N` for a new item and `⌘⇧L` to lock.
@@ -58,7 +58,7 @@ A login only fills on its own website, and only after you click it. The extensio
 A few things to know:
 
 - **A forgotten master password can't be recovered.** Keep an encrypted export somewhere safe.
-- **A PIN or pattern is much weaker than a password.** Someone with a copy of your file could crack it.
+- **A PIN is much weaker than a password.** Someone with a copy of your file could crack it.
 - **Keys can't protect you from malware** on your own computer.
 
 ## Privacy

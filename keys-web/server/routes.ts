@@ -17,7 +17,7 @@ import { HttpError, requireString, sanitizeCategoryName, sanitizeEntryInput } fr
 import { MIN_MASTER_LENGTH } from './vault.ts';
 import type { Vault } from './vault.ts';
 import { CATEGORY_COLORS, isShortCredential, MASTER_PIN_LENGTHS } from '../shared/types.ts';
-import { passphraseProblem, patternProblem } from '../shared/credential.ts';
+
 import type { Credential, ExportFormat, VaultStatus } from '../shared/types.ts';
 import { readFileSync } from 'node:fs';
 
@@ -30,7 +30,7 @@ const APP_VERSION: string = (() => {
   }
 })();
 
-const CREDENTIAL_LABELS = { password: 'master password', passphrase: 'passphrase', pin: 'PIN', pattern: 'pattern' } as const;
+const CREDENTIAL_LABELS = { password: 'master password', pin: 'PIN' } as const;
 
 interface Deps {
   vault: Vault;
@@ -104,23 +104,13 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
     if (pin) await quick.arm(key, pin);
   };
 
-  /** Validates a new vault credential of any type and returns its descriptor. */
+  /** Validates a new vault credential (a PIN, or a master password for anything else) and returns its descriptor. */
   const checkCredential = (value: string, type: unknown): Credential => {
     if (type === 'pin') {
       const pin = validatePin(value, MASTER_PIN_LENGTHS);
       return { type: 'pin', length: pin.length as 4 | 6 };
     }
-    if (type === 'pattern') {
-      const problem = patternProblem(value);
-      if (problem) throw new HttpError(400, problem, 'WEAK_PATTERN');
-      return { type: 'pattern' };
-    }
-    if (type === 'passphrase') {
-      const problem = passphraseProblem(value);
-      if (problem) throw new HttpError(400, problem, 'WEAK_PASSPHRASE');
-      if (checkStrength(value).score < 3) throw new HttpError(400, 'That passphrase is too easy to guess. Use less common words.');
-      return { type: 'passphrase' };
-    }
+
     assertStrongMaster(value);
     return { type: 'password' };
   };
@@ -562,7 +552,7 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
     if (!(await vault.verifyPassword(master))) throw new HttpError(401, 'Incorrect master password', 'BAD_PASSWORD');
     const given = typeof req.body?.exportPassword === 'string' ? req.body.exportPassword.slice(0, 1024) : '';
     if (format === 'encrypted' && !given && isShortCredential(vault.credential())) {
-      // A backup file protected only by a short PIN or pattern would be trivial to open once copied.
+      // A backup file protected only by a short PIN would be trivial to open once copied.
       throw new HttpError(400, 'Choose a file password for the backup (at least 10 characters).', 'NEEDS_EXPORT_PASSWORD');
     }
     const exportPassword = format === 'encrypted' ? given || master : undefined;

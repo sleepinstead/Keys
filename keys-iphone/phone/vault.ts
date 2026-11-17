@@ -72,7 +72,7 @@ export function readVault(SQL: SqlJsStatic, bytes: Uint8Array): LockedVault {
     const kdf: unknown = JSON.parse(meta.get('kdf') ?? 'null');
     if (!isValidKdf(kdf)) throw new Error('This database has invalid key settings');
     return {
-      credential: JSON.parse(meta.get('credential') ?? '{"type":"password"}') as Credential,
+      credential: readCredential(meta.get('credential')),
       kdf,
       wrapped: b64(meta.get('wrapped_key')!),
       entries: (one('SELECT id, blob, updated_at FROM entries WHERE deleted_at IS NULL') as [string, Uint8Array, number][]).map(
@@ -117,6 +117,17 @@ export const deriveKek: Derive = (password, kdf) =>
     hashLength: 32,
     outputType: 'binary',
   });
+
+/** A master password or a PIN. Files from older versions may say "passphrase" or "pattern": those are text secrets too, so they open with the password field. */
+function readCredential(raw: string | undefined): Credential {
+  let stored: { type?: string; length?: number } | null = null;
+  try {
+    stored = raw ? JSON.parse(raw) : null;
+  } catch {
+    /* treated as a password */
+  }
+  return stored?.type === 'pin' && (stored.length === 4 || stored.length === 6) ? { type: 'pin', length: stored.length } : { type: 'password' };
+}
 
 /** Master credential → Argon2id → KEK → unwraps the vault key (DEK), kept non-extractable. */
 export async function unlock(vault: LockedVault, credential: string, derive: Derive = deriveKek): Promise<CryptoKey> {

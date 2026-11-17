@@ -202,7 +202,7 @@ async function tryUnlock(credential: string) {
   render();
 }
 
-const wrongText = () => (locked?.credential.type === 'pin' ? 'Wrong PIN' : locked?.credential.type === 'pattern' ? 'Wrong pattern' : 'Wrong password');
+const wrongText = () => (locked?.credential.type === 'pin' ? 'Wrong PIN' : 'Wrong password');
 
 function lock() {
   key = null; // the CryptoKey is non-extractable; dropping it is all we can do
@@ -290,17 +290,15 @@ function startScreen() {
 function lockScreen() {
   const kind = locked!.credential;
   const form =
-    kind.type === 'pattern'
-      ? patternPad()
-      : kind.type === 'pin'
-        ? pinCells(kind.length)
-        : (() => {
+    kind.type === 'pin'
+      ? pinCells(kind.length)
+      : (() => {
           const input = h('input', {
             id: 'credential',
             class: 'input',
             type: 'password',
             autocomplete: 'current-password',
-            placeholder: kind.type === 'passphrase' ? 'Passphrase' : 'Master password',
+            placeholder: 'Master password',
             disabled: busy || celebrating,
             value: celebrating ? '••••••••••' : '',
             'data-success': celebrating ? '' : undefined,
@@ -372,35 +370,6 @@ function unlockButton(onclick?: () => void) {
     'button',
     { class: `btn primary${celebrating ? ' success' : ''}`, type: onclick ? 'button' : 'submit', disabled: busy || celebrating, onclick },
     celebrating ? '✓ Unlocked' : busy ? 'Unlocking…' : 'Unlock',
-  );
-}
-
-function patternPad() {
-  const points: number[] = [];
-  const dots = Array.from({ length: 9 }, (_, i) =>
-    h('button', {
-      type: 'button',
-      class: 'dot',
-      'aria-label': `Dot ${i + 1}`,
-      disabled: busy,
-      onclick: () => {
-        if (points.includes(i)) return;
-        points.push(i);
-        dots[i]!.dataset.n = String(points.length);
-      },
-    }),
-  );
-  return h(
-    'div',
-    { class: 'stack' },
-    h('p', { class: 'muted' }, 'Tap the dots in the order you draw your pattern.'),
-    h('div', { class: 'pad' }, ...dots),
-    h(
-      'div',
-      { class: 'row' },
-      h('button', { class: 'btn', type: 'button', onclick: () => (points.length = 0, dots.forEach((d) => delete d.dataset.n)) }, 'Clear'),
-      unlockButton(() => tryUnlock(points.join('-'))),
-    ),
   );
 }
 

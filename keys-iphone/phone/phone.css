@@ -189,30 +189,6 @@ h2 {
   align-self: center;
 }
 
-.pad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-  width: 240px;
-  margin: 8px auto;
-}
-.dot {
-  aspect-ratio: 1;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  background: var(--bg-subtle);
-  font-weight: 650;
-  font-size: 18px;
-}
-.dot[data-n] {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--on-primary);
-}
-.dot[data-n]::after {
-  content: attr(data-n);
-}
-
 /* ---------------------------------------------------------------- list / detail */
 
 .screen {

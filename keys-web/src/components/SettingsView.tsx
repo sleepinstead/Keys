@@ -8,9 +8,9 @@ import { collapse, fade } from '../motion.ts';
 import { isShortCredential } from '../../shared/types.ts';
 import type { BrowserPairing, Category, SyncConflict, SyncStatus, CategoryColor, Credential, EntryType, ExportFormat, PinStatus, StorageInfo, VaultStatus } from '../../shared/types.ts';
 import { isWeakPin } from '../../shared/generator.ts';
-import { CREDENTIAL_NAMES, choiceFromCredential, CredentialPicker, PatternInput, PatternSetup, PinWarning } from './credential.tsx';
+import { CREDENTIAL_NAMES, choiceFromCredential, CredentialPicker } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
-import { encodePattern, passphraseProblem, passphraseWords } from '../../shared/credential.ts';
+
 import { cloudFolders, downloadBytes, downloadFile, plural, timeAgo, TYPE_LABELS } from '../util.ts';
 import { StorageDialog } from './StorageDialog.tsx';
 import { ColorMenu } from './ColorMenu.tsx';
@@ -547,7 +547,7 @@ function StorageSection({ storage, credential, onMoved }: { storage: StorageInfo
   );
 }
 
-/** The current credential, in whatever form the vault uses: text, OTP boxes or a pattern grid. */
+/** The current credential, in whatever form the vault uses: text or OTP boxes. */
 function CredentialField({
   credential,
   id,
@@ -563,10 +563,6 @@ function CredentialField({
   onChange: (v: string) => void;
   hint?: string;
 }) {
-  const [points, setPoints] = useState<number[]>([]);
-  useEffect(() => {
-    if (!value) setPoints([]);
-  }, [value]);
   if (credential.type === 'pin') {
     return (
       <div className="field">
@@ -576,28 +572,7 @@ function CredentialField({
       </div>
     );
   }
-  if (credential.type === 'pattern') {
-    return (
-      <div className="field">
-        <div className="field-row">
-          <span className="field-label">{label}</span>
-          {value && <span className="badge" data-tone="good">Pattern entered</span>}
-        </div>
-        <PatternInput
-          compact
-          value={points}
-          label={label}
-          state={value ? 'success' : 'idle'}
-          onChange={(p) => {
-            setPoints(p);
-            if (value) onChange('');
-          }}
-          onComplete={(p) => onChange(encodePattern(p))}
-        />
-        {hint && <div className="field-hint">{hint}</div>}
-      </div>
-    );
-  }
+
   return (
     <Field label={label} htmlFor={id} hint={hint}>
       <input id={id} type="password" className="input" autoComplete="current-password" value={value} onChange={(e) => onChange(e.target.value)} />
@@ -1004,7 +979,7 @@ function CredentialSection({ credential, onChanged }: { credential: Credential; 
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState(0);
   const name = CREDENTIAL_NAMES[credential.type];
-  const title = { password: 'Master password', passphrase: 'Passphrase', pin: 'Unlock PIN', pattern: 'Unlock pattern' }[credential.type];
+  const title = { password: 'Master password', pin: 'Unlock PIN' }[credential.type];
   return (
     <Section title={title} icon={<KeyRound size={17} />} size="narrow">
       <div className="group">
@@ -1047,21 +1022,16 @@ function CredentialForm({ credential, onChanged, onDone }: { credential: Credent
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
-  const isText = choice.type === 'password' || choice.type === 'passphrase';
+  const isText = choice.type === 'password';
   const strength = useStrength(isText ? next : '');
   const toast = useToast();
   const currentName = CREDENTIAL_NAMES[credential.type];
-  const title = { password: 'Master password', passphrase: 'Passphrase', pin: 'Unlock PIN', pattern: 'Unlock pattern' }[credential.type];
+  const title = { password: 'Master password', pin: 'Unlock PIN' }[credential.type];
 
-  const phraseIssue = choice.type === 'passphrase' ? passphraseProblem(next) : null;
   const newOk =
     choice.type === 'password'
       ? next.length >= 10 && again === next && (strength?.score ?? 0) >= 3
-      : choice.type === 'passphrase'
-        ? !phraseIssue && again === next && (strength?.score ?? 0) >= 3
-        : choice.type === 'pin'
-          ? next.length === choice.pinLength && again === next && !isWeakPin(next)
-          : next.length > 0;
+      : next.length === choice.pinLength && again === next && !isWeakPin(next);
   const ready = current.length > 0 && newOk;
 
   const choose = (c: CredentialChoice) => {
@@ -1114,30 +1084,23 @@ function CredentialForm({ credential, onChanged, onDone }: { credential: Credent
                 <div className="field">
                   <div className="otp-head">
                     <label htmlFor="cp-next" className="field-label">
-                      {choice.type === 'passphrase' ? 'New passphrase' : 'New master password'}
+                      New master password
                     </label>
                     <button type="button" className="otp-reveal" onClick={() => setShowNew(!showNew)} aria-pressed={showNew}>
                       {showNew ? <EyeOff size={14} /> : <Eye size={14} />}
                       {showNew ? 'Hide' : 'Show'}
                     </button>
                   </div>
-                  <input id="cp-next" type={showNew ? 'text' : 'password'} className="input" autoComplete="new-password" spellCheck={false} placeholder={choice.type === 'passphrase' ? 'Four or more words' : ''} value={next} onChange={(e) => setNext(e.target.value)} />
+                  <input id="cp-next" type={showNew ? 'text' : 'password'} className="input" autoComplete="new-password" spellCheck={false}  value={next} onChange={(e) => setNext(e.target.value)} />
                   {next && <StrengthMeter result={strength} />}
-                  {choice.type === 'passphrase' && <div className="field-hint">{`${passphraseWords(next).length} words. ${phraseIssue ?? 'Looks good.'}`}</div>}
+
                 </div>
                 <Field label="Type it again" htmlFor="cp-again">
                   <input id="cp-again" type={showNew ? 'text' : 'password'} className="input" autoComplete="new-password" spellCheck={false} value={again} onChange={(e) => setAgain(e.target.value)} />
                 </Field>
               </>
-            ) : choice.type === 'pin' ? (
-              <>
-                <NewPinFields idPrefix="cp-pin" length={choice.pinLength} value={next} again={again} onValue={setNext} onAgain={setAgain} />
-              </>
             ) : (
-              <>
-                <PatternSetup onChange={(v) => setNext(v ?? '')} />
-                <PinWarning pattern />
-              </>
+              <NewPinFields idPrefix="cp-pin" length={choice.pinLength} value={next} again={again} onValue={setNext} onAgain={setAgain} />
             )}
           </motion.div>
         {error && (

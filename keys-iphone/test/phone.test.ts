@@ -19,7 +19,7 @@ after(() => servers.forEach((s) => (s.proc.kill(), fs.rmSync(s.home, { recursive
 const login = (title: string, password: string, categoryId: string | null = null) => ({ type: 'login', title, username: 'me', password, url: 'github.com', notes: '', codes: '', categoryId, favorite: false, icon: '', customFields: [] });
 
 let nextPort = 5260;
-async function make(credential: string, type: 'password' | 'pin' | 'pattern' = 'password') {
+async function make(credential: string, type: 'password' | 'pin' = 'password') {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-phone-'));
   const port = nextPort++;
   const proc = spawn(process.execPath, [server], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), APPDATA: path.join(home, 'AppData', 'Roaming'), KEYS_PORT: String(port) }, stdio: 'ignore' });
@@ -59,8 +59,8 @@ test('the phone reader decrypts a vault written by the web server', async () => 
   assert.ok(categories.some((c) => c.id === cat.id && c.name === 'Clients'));
 });
 
-test('the phone reader unlocks PIN and pattern vaults and rejects other files', async () => {
-  for (const [cred, type] of [['482913', 'pin'], ['0-4-8-5', 'pattern']] as const) {
+test('the phone reader unlocks PIN vaults and rejects other files', async () => {
+  for (const [cred, type] of [['482913', 'pin']] as const) {
     const { call, file } = await make(cred, type);
     await call('POST', '/entries', login('A', 'b'));
     const locked = readVault(await initSqlJs(), fs.readFileSync(file));

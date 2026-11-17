@@ -3424,114 +3424,6 @@ svg.dial-layer {
   font-size: 11px;
 }
 
-/* ---------------------------------------------------------------- pattern */
-
-.pattern {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-}
-.pattern-compact {
-  justify-items: start;
-}
-.pattern-grid {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  width: 216px;
-  height: 216px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-2xl);
-  background: var(--bg-subtle);
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.pattern-compact .pattern-grid {
-  width: 168px;
-  height: 168px;
-}
-.pattern[data-disabled] .pattern-grid {
-  pointer-events: none;
-}
-.pattern-grid svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
-}
-.pattern-line {
-  fill: none;
-  stroke: var(--text);
-  stroke-width: 6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.85;
-  transition: stroke 0.2s var(--ease);
-}
-.pattern-line-live {
-  opacity: 0.35;
-}
-.pattern-dot {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-}
-.pattern-dot span {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--border-strong);
-  transition: transform 0.15s var(--ease), background-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
-}
-.pattern-dot[aria-pressed='true'] span {
-  background: var(--text);
-  transform: scale(1.25);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--text) 10%, transparent);
-}
-.pattern-dot:focus-visible {
-  outline: none;
-}
-.pattern-dot:focus-visible span {
-  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--text);
-}
-.pattern[data-state='error'] .pattern-line {
-  stroke: var(--danger);
-}
-.pattern[data-state='error'] .pattern-dot[aria-pressed='true'] span {
-  background: var(--danger);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 14%, transparent);
-}
-.pattern[data-state='success'] .pattern-line {
-  stroke: var(--good);
-}
-.pattern[data-state='success'] .pattern-dot[aria-pressed='true'] span {
-  background: var(--good);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--good) 16%, transparent);
-}
-.pattern-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  min-height: 32px;
-}
-.pattern-setup {
-  display: grid;
-  gap: 12px;
-}
-.lock-form-pattern {
-  justify-items: stretch;
-}
-
 @media (max-width: 420px) {
   .lock-tabs .segmented-label svg {
     display: none;
@@ -5398,8 +5290,7 @@ svg.dial-layer {
 .purge-dialog .form-error {
   text-align: center;
 }
-.purge-dialog .otp,
-.purge-dialog .pattern {
+.purge-dialog .otp {
   margin: 0 auto;
 }
 

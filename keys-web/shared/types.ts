@@ -226,16 +226,12 @@ export interface VaultStatus {
 }
 
 /** What unlocks the vault: a master password, or (weaker, by the owner's choice) a numeric PIN. */
-export type Credential =
-  | { type: 'password' }
-  | { type: 'passphrase' }
-  | { type: 'pin'; length: 4 | 6 }
-  | { type: 'pattern' };
+export type Credential = { type: 'password' } | { type: 'pin'; length: 4 | 6 };
 export type CredentialType = Credential['type'];
 export const MASTER_PIN_LENGTHS = [4, 6] as const;
 
-/** PINs and patterns have little entropy, so they get the heavy KDF and stricter export rules. */
-export const isShortCredential = (c: Credential) => c.type === 'pin' || c.type === 'pattern';
+/** PINs have little entropy, so they get the heavy KDF and stricter export rules. */
+export const isShortCredential = (c: Credential) => c.type === 'pin';
 
 export interface PinStatus {
   length: number;

@@ -80,9 +80,11 @@ export class Vault {
   }
 
   /** Password or PIN. Not secret; the lock screen needs it to show the right input. */
+  /** A master password or a PIN. Files from older versions may say "passphrase" or "pattern": those are text secrets too, so they open with the password field. */
   credential(): Credential {
     const raw = this.store.getMeta('credential');
-    return raw ? (JSON.parse(raw) as Credential) : { type: 'password' };
+    const stored = raw ? (JSON.parse(raw) as { type?: string; length?: number }) : null;
+    return stored?.type === 'pin' && (stored.length === 4 || stored.length === 6) ? { type: 'pin', length: stored.length } : { type: 'password' };
   }
 
   async setup(password: string, credential: Credential = { type: 'password' }): Promise<Buffer> {
@@ -123,7 +125,7 @@ export class Vault {
       const dek = await this.unwrap(password);
       if (!dek) {
         this.recordFailure();
-        const what = ({ password: 'master password', passphrase: 'passphrase', pin: 'PIN', pattern: 'pattern' } as const)[this.credential().type];
+        const what = ({ password: 'master password', pin: 'PIN' } as const)[this.credential().type];
         throw new HttpError(401, `Incorrect ${what}`, 'BAD_PASSWORD');
       }
       this.store.setMeta('failed_attempts', '0');
@@ -186,7 +188,7 @@ export class Vault {
       const dek = await this.unwrap(current);
       if (!dek) {
         this.recordFailure();
-        throw new HttpError(401, `Current ${({ password: 'master password', passphrase: 'passphrase', pin: 'PIN', pattern: 'pattern' } as const)[this.credential().type]} is incorrect`, 'BAD_PASSWORD');
+        throw new HttpError(401, `Current ${({ password: 'master password', pin: 'PIN' } as const)[this.credential().type]} is incorrect`, 'BAD_PASSWORD');
       }
       const kdf = newKdfParams(isShortCredential(credential) ? 'pin' : 'password');
       const kek = await deriveKey(next, kdf);

@@ -3,10 +3,10 @@ import type { FormEvent } from 'react';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
 import { useSettings, useToast } from '../context.tsx';
-import { encodePattern } from '../../shared/credential.ts';
+
 import type { Credential, TrashedEntry } from '../../shared/types.ts';
 import { plural, timeAgo, TYPE_LABELS } from '../util.ts';
-import { CREDENTIAL_NAMES, PatternInput } from './credential.tsx';
+import { CREDENTIAL_NAMES } from './credential.tsx';
 import { Button, ContextMenu, Dialog, EmptyState, IconButton, Monogram, OtpInput, Spinner, stickyHead, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
 
@@ -24,20 +24,19 @@ function PurgeDialog({
   onDone: (purged: number) => void;
 }) {
   const [secret, setSecret] = useState('');
-  const [pattern, setPattern] = useState<number[]>([]);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (target) {
       setSecret('');
-      setPattern([]);
       setError(null);
     }
   }, [target]);
 
   const name = CREDENTIAL_NAMES[credential.type];
   const count = target === 'all' ? null : target?.length ?? 0;
-  const ready = credential.type === 'pin' ? secret.length === credential.length : credential.type === 'pattern' ? pattern.length >= 4 : secret.length > 0;
+  const ready = credential.type === 'pin' ? secret.length === credential.length : secret.length > 0;
 
   async function purge(value: string, e?: FormEvent) {
     e?.preventDefault();
@@ -49,9 +48,8 @@ function PurgeDialog({
       onDone(purged);
     } catch (err) {
       setError(errorMessage(err));
-      setSecret('');
-      setPattern([]);
-    } finally {
+        setSecret('');
+      } finally {
       setBusy(false);
     }
   }
@@ -65,12 +63,11 @@ function PurgeDialog({
       title={target === 'all' ? 'Empty Recently deleted?' : count === 1 ? `Delete ${(target as TrashedEntry[])[0]!.title} permanently?` : `Delete ${plural(count ?? 0, 'item')} permanently?`}
       description={`This can’t be undone. Enter your ${name} to confirm.`}
     >
-      <form className="dialog-form" onSubmit={(e) => void purge(credential.type === 'pattern' ? encodePattern(pattern) : secret, e)}>
+      <form className="dialog-form" onSubmit={(e) => void purge(secret, e)}>
         <div className="dialog-body stack purge-dialog">
           {credential.type === 'pin' ? (
             <OtpInput id="purge-secret" label={`Your ${credential.length}-digit PIN`} length={credential.length} value={secret} onChange={setSecret} size="md" autoFocus disabled={busy} />
-          ) : credential.type === 'pattern' ? (
-            <PatternInput value={pattern} onChange={setPattern} onComplete={(p) => void purge(encodePattern(p))} label="Your pattern" disabled={busy} compact />
+
           ) : (
             <div className="field">
               <label htmlFor="purge-secret" className="field-label">
