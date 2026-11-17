@@ -104,9 +104,11 @@ export function parseCsv(text: string): string[][] {
  * which spreadsheets hide and Keys strips again on import.
  */
 const FORMULA_START = /^[=+\-@\t\r]/;
+const KEYS_CSV_HEADER = ['type', 'title', 'username', 'password', 'url', 'notes', 'codes', 'category', 'favorite'];
 
 function csvCell(value: string): string {
-  const safe = FORMULA_START.test(value) ? `'${value}` : value;
+  // A value already starting with an apostrophe gets one too, so stripping one on import gives it back exactly.
+  const safe = FORMULA_START.test(value) || value.startsWith("'") ? `'${value}` : value;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
@@ -138,6 +140,8 @@ function fromCsv(text: string): PortableEntry[] {
   const rows = parseCsv(text);
   if (rows.length < 2) throw new HttpError(400, 'CSV has no data rows');
   const header = rows[0]!.map((h) => h.trim().toLowerCase());
+  // Only Keys' own exports carry the apostrophe guard; other apps' values are taken as they are.
+  const ours = header.join(',') === KEYS_CSV_HEADER.join(',');
   const col = (field: keyof typeof COLUMN_ALIASES) => header.findIndex((h) => COLUMN_ALIASES[field].includes(h));
   const idx = Object.fromEntries(Object.keys(COLUMN_ALIASES).map((f) => [f, col(f as keyof typeof COLUMN_ALIASES)]));
   if (idx.password! < 0 && idx.notes! < 0) {
@@ -146,7 +150,7 @@ function fromCsv(text: string): PortableEntry[] {
   return rows.slice(1).map((r) => {
     const get = (f: string) => {
       const v = idx[f]! >= 0 ? (r[idx[f]!] ?? '') : '';
-      return v.startsWith("'") && FORMULA_START.test(v.slice(1)) ? v.slice(1) : v; // undo the export's guard
+      return ours && v.startsWith("'") && (FORMULA_START.test(v.slice(1)) || v.startsWith("''")) ? v.slice(1) : v; // undo the export's guard
     };
     const rawType = get('type').trim();
     const type: EntryType = ENTRY_TYPES.includes(rawType as EntryType)
@@ -241,7 +245,7 @@ export async function exportVault(
   }
 
   if (format === 'csv') {
-    const header = ['type', 'title', 'username', 'password', 'url', 'notes', 'codes', 'category', 'favorite'];
+    const header = KEYS_CSV_HEADER;
     const rows = data.entries.map((e) => [
       e.type,
       e.title,

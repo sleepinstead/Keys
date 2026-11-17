@@ -21,8 +21,8 @@ import type { Category, CategoryColor, Credential, Entry, EntryData, EntryInput,
 // ciphertext already on disk, so renaming them would make existing vaults undecryptable.
 const DEK_AAD = 'vaultx:dek:v1';
 const PIN_AAD = 'vaultx:pin:v1';
-const entryAad = (id: string) => `vaultx:entry:${id}`;
-const categoryAad = (id: string) => `vaultx:category:${id}`;
+export const entryAad = (id: string) => `vaultx:entry:${id}`;
+export const categoryAad = (id: string) => `vaultx:category:${id}`;
 
 const HISTORY_LIMIT = 20;
 
@@ -128,8 +128,7 @@ export class Vault {
         const what = ({ password: 'master password', pin: 'PIN' } as const)[this.credential().type];
         throw new HttpError(401, `Incorrect ${what}`, 'BAD_PASSWORD');
       }
-      this.store.setMeta('failed_attempts', '0');
-      this.store.setMeta('lockout_until', '0');
+      this.clearFailures();
       return dek;
     });
   }
@@ -161,6 +160,12 @@ export class Vault {
     }
   }
 
+  /** Only written when there's something to clear: an unlock shouldn't touch a shared file for nothing. */
+  private clearFailures(): void {
+    if (this.store.getMeta('failed_attempts') !== '0' && this.store.getMeta('failed_attempts') !== null) this.store.setMeta('failed_attempts', '0');
+    if (this.store.getMeta('lockout_until') !== '0' && this.store.getMeta('lockout_until') !== null) this.store.setMeta('lockout_until', '0');
+  }
+
   private recordFailure(): void {
     const attempts = Number(this.store.getMeta('failed_attempts') ?? 0) + 1;
     this.store.setMeta('failed_attempts', String(attempts));
@@ -179,6 +184,7 @@ export class Vault {
         return false;
       }
       dek.fill(0);
+      this.clearFailures();
       return true;
     });
   }
@@ -261,10 +267,24 @@ export class Vault {
 
   /** Live items only: anything in Recently deleted is left out everywhere except the bin itself. */
   listEntries(key: Buffer): Entry[] {
-    return this.store
-      .all('entries')
-      .filter((row) => !row.deleted_at)
-      .map((row) => this.readEntry(key, row));
+    return this.readable(key, this.store.all('entries').filter((row) => !row.deleted_at));
+  }
+
+  /**
+   * Rows that decrypt. A damaged one (a bad sync, a tampered file) is left out and logged instead
+   * of making the whole vault unreadable; it stays in the file untouched.
+   */
+  private readable(key: Buffer, rows: Row[]): Entry[] {
+    const out: Entry[] = [];
+    for (const row of rows) {
+      try {
+        out.push(this.readEntry(key, row));
+      } catch (err) {
+        if (!(err instanceof DecryptionError)) throw err;
+        console.warn(`Skipping an item that can't be decrypted (${row.id})`);
+      }
+    }
+    return out;
   }
 
   listSummaries(key: Buffer): EntrySummary[] {
@@ -272,10 +292,10 @@ export class Vault {
   }
 
   listTrash(key: Buffer): TrashedEntry[] {
-    return this.store
-      .all('entries')
-      .filter((row) => row.deleted_at)
-      .map((row) => ({ ...summary(this.readEntry(key, row)), deletedAt: row.deleted_at! }))
+    const rows = this.store.all('entries').filter((row) => row.deleted_at);
+    const deletedAt = new Map(rows.map((r) => [r.id, r.deleted_at!]));
+    return this.readable(key, rows)
+      .map((e) => ({ ...summary(e), deletedAt: deletedAt.get(e.id)! }))
       .sort((a, b) => b.deletedAt - a.deletedAt);
   }
 
@@ -410,9 +430,15 @@ export class Vault {
   }
 
   listCategories(key: Buffer): Category[] {
-    return this.store.all('categories').map((row) => {
-      const data = decryptJson<{ name: string; color?: CategoryColor | null }>(key, row.blob, categoryAad(row.id));
-      return { id: row.id, name: data.name, color: data.color ?? null, createdAt: row.created_at };
+    return this.store.all('categories').flatMap((row) => {
+      try {
+        const data = decryptJson<{ name: string; color?: CategoryColor | null }>(key, row.blob, categoryAad(row.id));
+        return [{ id: row.id, name: data.name, color: data.color ?? null, createdAt: row.created_at }];
+      } catch (err) {
+        if (!(err instanceof DecryptionError)) throw err;
+        console.warn(`Skipping a category that can't be decrypted (${row.id})`);
+        return [];
+      }
     });
   }
 

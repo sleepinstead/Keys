@@ -49,9 +49,10 @@ export function createApp(opts: AppOptions) {
     }
     vaultId = now;
   });
-  sessions.onLock(() => {
-    vaultId = storage.available ? vault.store.getMeta('created_at') : null;
-  });
+  // The session belongs to the vault that was open when it started (another may have been connected while locked).
+  const current = () => (storage.available ? vault.store.getMeta('created_at') : null);
+  sessions.onLock(() => (vaultId = current()));
+  sessions.onOpen(() => (vaultId = current()));
   const presence = new Presence(() => {
     const where = storage.info();
     return opts.presence && where.available && !where.isDefault ? where.path : null;
@@ -96,6 +97,8 @@ export function createApp(opts: AppOptions) {
       res.status(err.status).json({ error: err.message, code: err.code });
     } else if (err instanceof KeyWipedError) {
       res.status(401).json({ error: 'Locked. Unlock to continue', code: 'LOCKED' });
+    } else if (err && typeof err === 'object' && 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status < 500 && 'type' in err && !['entity.too.large', 'entity.parse.failed'].includes(String(err.type))) {
+      res.status(err.status).json({ error: 'Bad request' }); // body-parser's other refusals (charset, aborted, ...)
     } else if (err && typeof err === 'object' && 'type' in err && err.type === 'entity.too.large') {
       res.status(413).json({ error: 'Request is too large' });
     } else if (err && typeof err === 'object' && 'type' in err && err.type === 'entity.parse.failed') {
@@ -107,6 +110,9 @@ export function createApp(opts: AppOptions) {
     } else if (err && typeof err === 'object' && 'errcode' in err && (err.errcode === 5 || err.errcode === 6)) {
       // SQLITE_BUSY / SQLITE_LOCKED: another program held the file past the busy timeout.
       res.status(503).json({ error: 'The database is busy (another program is using it). Try again in a moment.', code: 'BUSY' });
+    } else if (err && typeof err === 'object' && 'errcode' in err && (err.errcode === 13 || (Number(err.errcode) & 0xff) === 10)) {
+      // SQLITE_FULL / SQLITE_IOERR: nothing was saved; say why instead of "internal error".
+      res.status(507).json({ error: 'Keys couldn’t write to the database (the disk may be full or offline). Nothing was changed.', code: 'WRITE_FAILED' });
     } else {
       // Never echo internal errors (they could contain data); log a generic line only.
       console.error('Unexpected error:', err instanceof Error ? err.name + ': ' + err.message : 'unknown');

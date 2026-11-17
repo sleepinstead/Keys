@@ -372,8 +372,8 @@ function SharingSection({ sync, onMerged }: { sync: SyncStatus | null; onMerged:
     if (!ok) return;
     setBusy(c.path);
     try {
-      const { merged } = await api.mergeConflict(c.path);
-      toast(`Merged ${plural(merged, 'item')} from the other copy`);
+      const { merged, skipped } = await api.mergeConflict(c.path);
+      toast(`Merged ${plural(merged, 'item')} from the other copy${skipped ? `. ${plural(skipped, 'damaged item')} left out` : ''}`);
       await onMerged();
     } catch (err) {
       toast(errorMessage(err), 'error');

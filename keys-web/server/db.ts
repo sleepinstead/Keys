@@ -135,7 +135,7 @@ export class Store {
     }
     if (file !== ':memory:') {
       try {
-        fs.chmodSync(file, 0o600);
+        if (!fs.lstatSync(file).isSymbolicLink()) fs.chmodSync(file, 0o600); // never change a link's target
       } catch {
         /* some synced folders don't support permissions; the contents are encrypted anyway */
       }
@@ -151,6 +151,7 @@ export class Store {
     db.exec(`
       PRAGMA journal_mode = DELETE;
       PRAGMA synchronous = FULL;
+      PRAGMA fullfsync = ON;
       PRAGMA foreign_keys = ON;
       PRAGMA secure_delete = ON;
     `);
@@ -296,7 +297,12 @@ export class Store {
 
   /** Moves an entry into or out of Recently deleted. */
   setDeleted(id: string, at: number | null): boolean {
-    const res = this.write(() => this.db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?').run(at, id));
+    // Restoring counts as a change, or merging an older copy (where it's still deleted) would trash it again.
+    const res = this.write(() =>
+      at === null
+        ? this.db.prepare('UPDATE entries SET deleted_at = NULL, updated_at = MAX(updated_at, ?) WHERE id = ?').run(Date.now(), id)
+        : this.db.prepare('UPDATE entries SET deleted_at = ? WHERE id = ?').run(at, id),
+    );
     return Number(res.changes) > 0;
   }
 

@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { APP_ID, configDir } from './db.ts';
+import { decrypt } from './crypto.ts';
+import { categoryAad, entryAad } from './vault.ts';
 import type { Row, Store, Table } from './db.ts';
 import type { OtherDevice, SyncConflict } from '../shared/types.ts';
 
@@ -107,7 +109,11 @@ export class Presence {
     if (!target) return;
     const marker: Marker = { device: this.id, name: this.name, platform: PLATFORMS[process.platform] ?? process.platform, at: Date.now() };
     try {
-      fs.writeFileSync(target, JSON.stringify(marker));
+      // Written beside it and renamed over it: a planted symlink with the marker's name is
+      // replaced, never followed (which would overwrite whatever file it points to).
+      const tmp = `${target}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(marker), { flag: 'wx' });
+      fs.renameSync(tmp, target);
       this.marked = target;
     } catch {
       /* folder offline or read-only: just don't announce */
@@ -158,7 +164,8 @@ export function findConflicts(store: Store): SyncConflict[] {
   if (store.file === ':memory:') return [];
   const dir = path.dirname(store.file);
   const base = path.basename(store.file);
-  const stem = base.replace(/\.sqlite$/i, '');
+  const ext = path.extname(base); // .sqlite, .db, .sqlite3, or whatever the file is called
+  const stem = base.slice(0, base.length - ext.length);
   const ours = vaultIdOf(store.db);
   if (!ours) return [];
   let names: string[];
@@ -169,7 +176,7 @@ export function findConflicts(store: Store): SyncConflict[] {
   }
   const out: SyncConflict[] = [];
   for (const name of names) {
-    if (name === base || !name.startsWith(stem) || !/\.sqlite$/i.test(name) || name.startsWith('.')) continue;
+    if (name === base || !name.startsWith(stem) || path.extname(name).toLowerCase() !== ext.toLowerCase() || name.startsWith('.')) continue;
     const file = path.join(dir, name);
     try {
       const st = fs.statSync(file);
@@ -192,6 +199,8 @@ export function findConflicts(store: Store): SyncConflict[] {
 }
 
 const lastTouched = (r: Row) => Math.max(r.updated_at, r.deleted_at ?? 0);
+/** Times from a copy are trusted only up to a little past now (clocks differ slightly between computers). */
+const plausible = (r: Row) => lastTouched(r) <= Date.now() + 10 * 60_000;
 const COLUMNS: Record<Table, string> = { entries: 'id, blob, created_at, updated_at, deleted_at', categories: 'id, blob, created_at, updated_at' };
 
 /** Rows in `other` that are missing here or newer than ours. */
@@ -205,10 +214,12 @@ function diff(store: Store, other: DatabaseSync): { rows: { table: Table; row: R
     /* none recorded */
   }
   for (const table of ['categories', 'entries'] as Table[]) {
+    // One read of our own times, not a query per row (this runs on every sync check).
+    const ours = new Map((store.db.prepare(`SELECT ${COLUMNS[table]} FROM ${table}`).all() as unknown as Row[]).map((r) => [r.id, r]));
     for (const row of other.prepare(`SELECT ${COLUMNS[table]} FROM ${table}`).all() as unknown as Row[]) {
-      const mine = store.get(table, row.id);
+      const mine = ours.get(row.id);
       if (!mine && purged.has(row.id)) continue; // deleted for good here: the copy's older version stays gone
-      if (!mine || lastTouched(row) > lastTouched(mine)) rows.push({ table, row });
+      if (plausible(row) && (!mine || lastTouched(row) > lastTouched(mine))) rows.push({ table, row });
     }
   }
   return { rows, changes: rows.length };
@@ -218,17 +229,29 @@ function diff(store: Store, other: DatabaseSync): { rows: { table: Table; row: R
  * Merges a conflict copy into the open database (newest version of each item wins; items only in
  * the copy are added), then renames the copy to *.merged. Only paths that `findConflicts` reported are accepted.
  */
-export function mergeConflict(store: Store, file: string): { merged: number } {
+export function mergeConflict(store: Store, file: string, key: Buffer): { merged: number; skipped: number } {
   const known = findConflicts(store).find((c) => c.path === file);
   if (!known) throw new Error('That copy is no longer there, or has nothing new');
   const db = new DatabaseSync(file, { readOnly: true });
   let merged = 0;
+  let skipped = 0;
   try {
+    // Only rows that really are this vault's: each must decrypt with our key under its own id.
+    // A damaged or planted row is left out rather than making the vault unreadable.
     const { rows } = diff(store, db);
-    store.transaction(() => {
-      for (const { table, row } of rows) store.putRaw(table, row);
+    const good = rows.filter(({ table, row }) => {
+      try {
+        decrypt(key, row.blob, table === 'entries' ? entryAad(row.id) : categoryAad(row.id)).fill(0);
+        return true;
+      } catch {
+        return false;
+      }
     });
-    merged = rows.length;
+    store.transaction(() => {
+      for (const { table, row } of good) store.putRaw(table, row);
+    });
+    merged = good.length;
+    skipped = rows.length - good.length;
   } finally {
     db.close();
   }
@@ -238,5 +261,5 @@ export function mergeConflict(store: Store, file: string): { merged: number } {
   } catch {
     /* left in place; it has nothing new now, so it isn't offered again */
   }
-  return { merged };
+  return { merged, skipped };
 }

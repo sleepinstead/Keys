@@ -11,6 +11,7 @@ export class SessionManager {
   private readonly idleMs: () => number;
   private readonly timer: NodeJS.Timeout;
   private readonly listeners = new Set<() => void>();
+  private readonly openListeners = new Set<() => void>();
 
   constructor(idleMs: () => number) {
     this.idleMs = idleMs;
@@ -24,7 +25,12 @@ export class SessionManager {
     this.key = key;
     this.token = randomToken();
     this.lastActivity = Date.now();
+    for (const fn of this.openListeners) fn();
     return this.token;
+  }
+
+  onOpen(fn: () => void): void {
+    this.openListeners.add(fn);
   }
 
   get unlocked(): boolean {

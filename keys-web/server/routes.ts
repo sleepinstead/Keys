@@ -46,7 +46,9 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
   const api = express.Router();
   const json = express.json({ limit: '1mb' });
   let iconFetches = 0;
-  const bigJson = express.json({ limit: '40mb' }); // backups carry each item's icon
+  // Backups carry each item's icon (about 11 KB an item): room for a large vault, and export refuses anything bigger.
+  const MAX_BACKUP_CHARS = 250_000_000;
+  const bigJson = express.json({ limit: '260mb' });
 
   const tokenOf = (req: Request) => {
     const token = req.headers[SESSION_HEADER];
@@ -280,10 +282,10 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
 
   /** Merges a conflict copy the sync app made (newest version of each item wins), then removes it. */
   api.post('/sync/merge', json, (req, res) => {
-    keyFor(req);
+    const key = keyFor(req);
     const file = requireString(req.body?.path, 'Copy', 4096);
     try {
-      res.json(mergeConflict(vault.store, file));
+      res.json(mergeConflict(vault.store, file, key));
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : 'Couldn’t merge that copy');
     }
@@ -306,22 +308,24 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
     // At most 4 sites at once, 15 seconds each in all (slow sites can't tie Keys up).
     if (iconFetches >= 4) throw new HttpError(503, 'Busy fetching other icons. Try again in a moment');
     iconFetches++;
+    // The slot is freed when the fetch really ends, not when we stop waiting for it.
+    const work = fetchSiteIcon(url, fetchIcon).finally(() => iconFetches--);
+    work.catch(() => {}); // a late failure after the timeout has nobody to report to
     let timer: NodeJS.Timeout | undefined;
     try {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new HttpError(504, 'The website took too long')), 15_000);
       });
-      res.json({ icon: await Promise.race([fetchSiteIcon(url, fetchIcon), timeout]) });
+      res.json({ icon: await Promise.race([work, timeout]) });
     } finally {
       clearTimeout(timer);
-      iconFetches--;
     }
   });
 
   // ------------------------------------------------------------ entries
 
   api.get('/entries', (req, res) => {
-    res.json(vault.listSummaries(keyFor(req)));
+    res.json(vault.listSummaries(keyFor(req, false))); // refreshes after a sync don't count as activity
   });
 
   api.get('/entries/:id', (req, res) => {
@@ -368,7 +372,7 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
   // ------------------------------------------------------ recently deleted
 
   api.get('/trash', (req, res) => {
-    res.json(vault.listTrash(keyFor(req)));
+    res.json(vault.listTrash(keyFor(req, false)));
   });
 
   api.post('/trash/restore', json, (req, res) => {
@@ -432,7 +436,7 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
   // --------------------------------------------------------- categories
 
   api.get('/categories', (req, res) => {
-    res.json(vault.listCategories(keyFor(req)));
+    res.json(vault.listCategories(keyFor(req, false)));
   });
 
   api.post('/categories', json, (req, res) => {
@@ -488,14 +492,15 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
    * and each rating is kept inside its (encrypted) item so the next audit doesn't redo it.
    */
   const auditReport = async (req: Request) => {
-    const entries = vault.listEntries(keyFor(req));
+    const entries = vault.listEntries(keyFor(req, false));
     const fresh = await rateLogins(entries);
+    const passwords = new Map(entries.map((e) => [e.id, e.password]));
     const key = keyFor(req, false); // the session may have locked while rating
     if (fresh.size) {
       vault.store.transaction(() => {
         for (const [id, strength] of fresh) {
           // Skip anything edited while it was being rated: its rating would be for the old password.
-          if (vault.store.get('entries', id)) vault.patchEntryData(key, id, { strength }, (d) => d.password === entries.find((e) => e.id === id)?.password);
+          if (vault.store.get('entries', id)) vault.patchEntryData(key, id, { strength }, (d) => d.password === passwords.get(id));
         }
       });
     }
@@ -556,21 +561,34 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
       throw new HttpError(400, 'Choose a file password for the backup (at least 10 characters).', 'NEEDS_EXPORT_PASSWORD');
     }
     const exportPassword = format === 'encrypted' ? given || master : undefined;
-    if (format === 'encrypted' && typeof exportPassword === 'string' && exportPassword !== master) {
-      if (exportPassword.length < MIN_MASTER_LENGTH) {
+    // With a PIN vault the backup always needs its own long password (the PIN itself doesn't count).
+    if (format === 'encrypted' && typeof exportPassword === 'string' && (exportPassword !== master || isShortCredential(vault.credential()))) {
+      if (exportPassword.length < MIN_MASTER_LENGTH || exportPassword === master) {
         throw new HttpError(400, `Export password must be at least ${MIN_MASTER_LENGTH} characters`);
       }
     }
-    res.json(await exportVault(vault, keyFor(req), format, exportPassword));
+    const file = await exportVault(vault, keyFor(req), format, exportPassword);
+    if (file.content.length > MAX_BACKUP_CHARS) {
+      throw new HttpError(413, 'This vault is too large to back up in one file. Turn off website icons in Settings, then export again.');
+    }
+    res.json(file);
   });
 
+  // One import at a time: an encrypted file's key derivation can take a lot of memory.
+  let importing = false;
   api.post('/import', bigJson, async (req, res) => {
     keyFor(req);
-    const content = requireString(req.body?.content, 'File content', 30_000_000);
-    const password = typeof req.body?.password === 'string' && req.body.password ? req.body.password : undefined;
-    // importVault awaits key derivation for encrypted files before it touches the vault key,
-    // so hand it a getter that re-validates the session at that point.
-    res.json(await importVault(vault, () => keyFor(req, false), content, password));
+    const content = requireString(req.body?.content, 'File content', MAX_BACKUP_CHARS);
+    const password = typeof req.body?.password === 'string' && req.body.password ? requireString(req.body.password, 'File password', 1024) : undefined;
+    if (importing) throw new HttpError(429, 'Another import is still running');
+    importing = true;
+    try {
+      // importVault awaits key derivation for encrypted files before it touches the vault key,
+      // so hand it a getter that re-validates the session at that point.
+      res.json(await importVault(vault, () => keyFor(req, false), content, password));
+    } finally {
+      importing = false;
+    }
   });
 
   // ------------------------------------------------------------- errors

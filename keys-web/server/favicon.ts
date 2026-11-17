@@ -37,8 +37,9 @@ function isPrivateAddress(ip: string): boolean {
     );
   }
   const v6 = ip.toLowerCase();
-  // URL parsing rewrites ::ffff:127.0.0.1 as ::ffff:7f00:1.
-  const mapped = v6.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  // URL parsing rewrites ::ffff:127.0.0.1 as ::ffff:7f00:1; the IPv4-compatible (::a.b.c.d) and
+  // ::ffff:0:a.b.c.d forms carry an IPv4 address the same way.
+  const mapped = v6.match(/^::(?:ffff:(?:0:)?)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
   if (mapped) {
     const [high, low] = [parseInt(mapped[1]!, 16), parseInt(mapped[2]!, 16)];
     return isPrivateAddress(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
@@ -46,6 +47,8 @@ function isPrivateAddress(ip: string): boolean {
   if (v6.startsWith('::ffff:')) return isPrivateAddress(v6.slice(7));
   // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) can wrap any IPv4 address, private ones included.
   if (v6.startsWith('64:ff9b:') || v6.startsWith('2002:')) return true;
+  // Site-local (fec0::/10, deprecated but still routed by some networks) and discard-only 100::/64.
+  if (/^fe[c-f]/.test(v6) || v6.startsWith('100:')) return true;
   return v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe8') || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb') || v6.startsWith('ff');
 }
 
