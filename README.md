@@ -1,8 +1,8 @@
 # Keys
 
-Keys is a password manager that runs on your own computer. Your passwords are encrypted and kept in one file that you control. There's no account to create and no cloud service in the middle.
+Keys is a password manager that runs on your own computer, in your browser. Your passwords are encrypted and kept in one file that you control. There's no account to create and no cloud service in the middle.
 
-![Keys main screen](screenshots/main.png)
+![Keys main screen](pictures/main.png)
 
 ## What it does
 
@@ -22,19 +22,15 @@ Each folder is a complete project of its own: `cd` into it and use its npm comma
 
 | Folder | What it is | Start here |
 | --- | --- | --- |
-| [keys-macos](keys-macos) | Keys for Mac: the desktop app (Tauri + Rust core) | `npm install`, `npm run dev` |
-| [keys-windows](keys-windows) | Keys for Windows: the desktop app, built on GitHub | `npm install`, `npm run release` |
 | [keys-web](keys-web) | Keys in the browser, served by Node on your computer | `npm run setup`, `npm run build`, `npm start` |
 | [keys-iphone](keys-iphone) | Read-only iPhone web app (opens your file from Google Drive) | `npm install`, `npm run dev` |
 | [keys-extension](keys-extension) | Browser extension for Chrome, Edge, Brave… | load the folder in `chrome://extensions` |
 
-They're separate copies: a change to the interface or the core has to be made in each folder that has it (macOS, Windows, web). All of them read the same vault file format.
-
-Download the apps from [Releases](https://github.com/sleepinstead/Keys/releases).
+They're separate projects that read the same vault file format.
 
 ## Where your data lives
 
-Everything is in one SQLite file. By default it's `Keys.sqlite` in your app data folder (`~/Library/Application Support/Keys` on macOS).
+Everything is in one SQLite file. By default it's `Keys.sqlite` in your app data folder (`~/Library/Application Support/Keys` on macOS, `%APPDATA%\Keys` on Windows).
 
 You can move it from **Settings → Database** to any folder, iCloud Drive, Google Drive or a USB drive. In a cloud folder, open it on one device at a time.
 
@@ -44,12 +40,11 @@ To back up, make an encrypted export, or copy the file while Keys is stopped.
 
 Keys has an extension for Chrome, Edge, Brave and other Chromium browsers. It fills your logins on websites and asks before saving a new or changed password. It keeps no copy of your passwords: it asks Keys, and only while Keys is unlocked.
 
-![Autofill menu on a login page](screenshots/extension.png)
+![Autofill menu on a login page](pictures/extension.png)
 
-1. Download the latest `Keys-extension` zip from [Releases](https://github.com/sleepinstead/Keys/releases) and unzip it.
-2. Open `chrome://extensions` and turn on **Developer mode**.
-3. Drag the unzipped folder onto the page.
-4. Click the Keys icon, choose **Connect to Keys**, and paste the code into **Settings → Browser extension**.
+1. Open `chrome://extensions` and turn on **Developer mode**.
+2. Drag the [keys-extension](keys-extension) folder onto the page.
+3. Click the Keys icon, choose **Connect to Keys**, and paste the code into **Settings → Browser extension**.
 
 A login only fills on its own website, and only after you click it. The extension needs Chrome 120 or newer.
 
@@ -66,16 +61,9 @@ A few things to know:
 - **A PIN or pattern is much weaker than a password.** Someone with a copy of your file could crack it.
 - **Keys can't protect you from malware** on your own computer.
 
-## Code signing policy
+## Privacy
 
-Free code signing for the Windows installer is provided by [SignPath.io](https://about.signpath.io), with a certificate by [SignPath Foundation](https://signpath.org).
-
-- Committers and reviewers: [sleepinstead](https://github.com/sleepinstead)
-- Approvers: [sleepinstead](https://github.com/sleepinstead)
-
-Only files built by this repository's GitHub workflow from its own source are signed, and every signed release is approved by hand.
-
-**Privacy:** Keys sends nothing about you or your vault to other networked systems. It only connects out for: update checks (GitHub; on by default, can be turned off in Settings), breach checks (Have I Been Pwned, which only ever receives the first 5 characters of a password's SHA-1 hash), and fetching a website's icon (that website).
+Keys sends nothing about you or your vault to other networked systems. It only connects out for: breach checks (Have I Been Pwned, which only ever receives the first 5 characters of a password's SHA-1 hash), and fetching a website's icon (that website).
 
 ## License
 

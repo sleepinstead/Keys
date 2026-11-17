@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,12 +8,10 @@ import path from 'node:path';
 import initSqlJs from 'sql.js';
 import { decryptAll, readVault, unlock, WrongCredential } from '../phone/vault.ts';
 
-// Vaults are written by the Rust core of keys-macos (its headless server), each in a scratch HOME,
-// never the real one. The reader must stay byte-compatible with it.
-const desktop = path.resolve(import.meta.dirname, '../../keys-macos/desktop');
-const bin = path.join(desktop, 'target/debug/keys-server');
-const cargoEnv = { ...process.env, PATH: `${path.join(os.homedir(), '.cargo/bin')}:${process.env.PATH}` };
-before(() => execFileSync('cargo', ['build', '-q', '-p', 'keys-core', '--bin', 'keys-server'], { cwd: desktop, env: cargoEnv, stdio: 'inherit' }));
+// Vaults are written by the keys-web server (Node), each in a scratch HOME, never the real one.
+// The reader must stay byte-compatible with it. Needs keys-web's dependencies (npm install there).
+const server = path.resolve(import.meta.dirname, '../../keys-web/server/index.ts');
+before(() => assert.ok(fs.existsSync(path.resolve(server, '../../node_modules/express')), 'Run npm install in keys-web first'));
 
 const servers: { proc: ChildProcess; home: string }[] = [];
 after(() => servers.forEach((s) => (s.proc.kill(), fs.rmSync(s.home, { recursive: true, force: true }))));
@@ -24,7 +22,7 @@ let nextPort = 5260;
 async function make(credential: string, type: 'password' | 'pin' | 'pattern' = 'password') {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-phone-'));
   const port = nextPort++;
-  const proc = spawn(bin, [], { env: { ...process.env, HOME: home, KEYS_PORT: String(port) }, stdio: 'ignore' });
+  const proc = spawn(process.execPath, [server], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), APPDATA: path.join(home, 'AppData', 'Roaming'), KEYS_PORT: String(port) }, stdio: 'ignore' });
   servers.push({ proc, home });
   let token = '';
   const call = async (method: string, route: string, body?: unknown): Promise<any> => {
@@ -46,7 +44,7 @@ async function make(credential: string, type: 'password' | 'pin' | 'pattern' = '
   return { call, file: String(file), stop: () => proc.kill() };
 }
 
-test('the phone reader decrypts a vault written by the Rust core', async () => {
+test('the phone reader decrypts a vault written by the web server', async () => {
   const { call, file } = await make('violet-anchor-tundra-58-quill');
   const cat = await call('POST', '/categories', { name: 'Clients' });
   await call('POST', '/entries', login('GitHub', 's3cret-Ü', cat.id));
