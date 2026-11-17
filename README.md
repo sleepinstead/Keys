@@ -2,8 +2,6 @@
 
 Keys is a password manager that runs on your own computer. Your passwords are encrypted and kept in one file that you control. There's no account to create and no cloud service in the middle.
 
-I built it for people who want a private, simple place for their passwords without handing them to a third party.
-
 ![Keys main screen](screenshots/main.png)
 
 ## What it does
@@ -18,20 +16,21 @@ I built it for people who want a private, simple place for their passwords witho
 - **Feels quick.** Right-click any item for shortcuts, press `⌘K` to search, `N` for a new item and `⌘⇧L` to lock.
 - **Light and dark themes**, or follow your system.
 
-## Built with
+## Versions
 
-- Rust (Tauri, axum) for the Mac and Windows app and its local server
-- React, TypeScript and Vite for the interface
-- SQLite for storage
-- Argon2id and AES-256-GCM for encryption
+Each folder is a complete project of its own: `cd` into it and use its npm commands.
 
-## Getting started
+| Folder | What it is | Start here |
+| --- | --- | --- |
+| [keys-macos](keys-macos) | Keys for Mac: the desktop app (Tauri + Rust core) | `npm install`, `npm run dev` |
+| [keys-windows](keys-windows) | Keys for Windows: the desktop app, built on GitHub | `npm install`, `npm run release` |
+| [keys-web](keys-web) | Keys in the browser, served by Node on your computer | `npm run setup`, `npm run build`, `npm start` |
+| [keys-iphone](keys-iphone) | Read-only iPhone web app (opens your file from Google Drive) | `npm install`, `npm run dev` |
+| [keys-extension](keys-extension) | Browser extension for Chrome, Edge, Brave… | load the folder in `chrome://extensions` |
 
-Download Keys from [Releases](https://github.com/sleepinstead/Keys/releases). **Mac:** unzip it and drag **Keys.app** to Applications. **Windows:** run the setup `.exe` (if Windows says it protected your PC, choose **More info → Run anyway**; the installer isn't code-signed yet). The first time, Keys walks you through a short setup where you choose how to unlock it. It updates itself.
+They're separate copies: a change to the interface or the core has to be made in each folder that has it (macOS, Windows, web). All of them read the same vault file format.
 
-No desktop app for your system yet? Run Keys in the browser instead: see [web/README.md](web/README.md).
-
-To work on the code you need Node.js 24.7+ and Rust. Run `npm install`, then `npm run dev` (the Rust server plus live-reloading UI) and open http://localhost:5173.
+Download the apps from [Releases](https://github.com/sleepinstead/Keys/releases).
 
 ## Where your data lives
 
@@ -66,19 +65,6 @@ A few things to know:
 - **A forgotten master password can't be recovered.** Keep an encrypted export somewhere safe.
 - **A PIN or pattern is much weaker than a password.** Someone with a copy of your file could crack it.
 - **Keys can't protect you from malware** on your own computer.
-
-## Project layout
-
-```
-desktop/     Rust: keys-core (API, encryption, storage) and the desktop app (Mac, Windows)
-src/         React interface
-shared/      types and the password generator
-extension/   browser extension
-phone/       read-only iPhone web app
-web/         Keys in the browser (Node server for the same interface)
-```
-
-Third-party fonts, word lists and libraries are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Code signing policy
 

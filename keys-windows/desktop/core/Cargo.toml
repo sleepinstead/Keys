@@ -1,0 +1,40 @@
+[package]
+name = "keys-core"
+version = "0.1.0"
+edition = "2024"
+description = "Keys: the vault, its encryption and the local API, in Rust"
+publish = false
+
+[dependencies]
+aes-gcm = { version = "0.10", features = ["zeroize"] }
+argon2 = { version = "0.6", features = ["zeroize", "parallel"] }
+axum = "0.8"
+base64 = "0.22"
+rand = "0.8"
+rusqlite = { version = "0.37", features = ["bundled", "hooks"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "signal"] }
+unicode-normalization = "0.1"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+zxcvbn = "3"
+rust-embed = "8"
+mime_guess = "2"
+log = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+url = "2"
+sha1 = "0.10"
+gethostname = "1"
+futures-util = "0.3"
+arboard = { version = "3", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.17", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

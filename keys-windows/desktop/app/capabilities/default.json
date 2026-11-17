@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The window loads Keys from its own local server and needs no native commands.",
+  "windows": ["main"],
+  "permissions": []
+}

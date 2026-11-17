@@ -1,38 +1,45 @@
+# Dependencies and build output (every version folder)
 node_modules
 dist
+dist-mac
+dist-win
+dist-phone
+*.tsbuildinfo
+coverage/
+**/desktop/target
+**/desktop/app/gen
+
+# The previous single-folder layout, kept locally until it's deleted
+keys-old/
+
+# Local settings, secrets, editors
 .DS_Store
 .claude
-.git
 .impeccable/
-*.tsbuildinfo
 .env*
+*.local
+.vscode/
+.idea/
+CLAUDE.md
+AGENTS.md
+*.pem
+*.key
+*.zip
+*.log
+npm-debug.log*
+Thumbs.db
+
+# Vaults
 *.sqlite
 *.sqlite-journal
-coverage/
+*.sqlite-wal
+*.sqlite-shm
+
+# Only the Windows build workflow is tracked
 .github/*
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/windows.yml
-*.zip
-CLAUDE.md
-AGENTS.md
-# Logs, editors, local env
-*.log
-npm-debug.log*
-.vscode/
-.idea/
-*.local
-*.sqlite-wal
-*.sqlite-shm
-Thumbs.db
-*.pem
-*.key
-extension/*.crx
-test/
-dist-phone
 
-# Rust / Tauri build output
-desktop/target
-desktop/app/gen
-dist-mac
-dist-win
+# Local-only tests (keys-iphone/test is tracked: it checks the file format)
+keys-extension/*.crx
