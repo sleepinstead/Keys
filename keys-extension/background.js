@@ -7,9 +7,6 @@
 const DEFAULT_SERVER = 'http://127.0.0.1:5174';
 const CLEAR_ALARM = 'keys-clear-clipboard';
 
-// Only the worker and popup may read the pairing token; content scripts on web pages can't.
-chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' }).catch(() => {});
-
 class KeysError extends Error {
   constructor(message, code) {
     super(message);
@@ -17,26 +14,81 @@ class KeysError extends Error {
   }
 }
 
-async function settings() {
-  const { server = DEFAULT_SERVER, token = null } = await chrome.storage.local.get(['server', 'token']);
-  return { server: server.replace(/\/+$/, ''), token };
+const LOOPBACK = ['127.0.0.1', 'localhost', '[::1]'];
+/** Keys only ever runs on this computer: anything else in storage is ignored. */
+function checkedServer(raw) {
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'http:' && LOOPBACK.includes(url.hostname)) return url.origin;
+  } catch {
+    /* fall through */
+  }
+  return DEFAULT_SERVER;
 }
 
-/** One request to Keys. Turns "not running", "not connected" and "locked" into clear codes. */
-async function keys(path, { method = 'GET', body } = {}) {
-  const { server, token } = await settings();
+// The pairing key lives in the worker's own IndexedDB, which content scripts (and so web pages,
+// even a compromised one) can't reach, unlike chrome.storage.local.
+function idb(mode, run) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open('keys', 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('kv');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction('kv', mode);
+      const req = run(tx.objectStore('kv'));
+      tx.oncomplete = () => (open.result.close(), resolve(req.result));
+      tx.onerror = () => (open.result.close(), reject(tx.error));
+    };
+  });
+}
+const getKey = () => idb('readonly', (s) => s.get('pairingKey'));
+const setKey = (key) => idb('readwrite', (s) => (key ? s.put(key, 'pairingKey') : s.delete('pairingKey')));
+
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const sha256 = async (text) => b64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+async function hmac(key, text) {
+  const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return b64(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(text)));
+}
+
+/** The pairing key (the token's SHA-256, which is what Keys stores). An older version kept the raw token. */
+async function pairingKey() {
+  const key = await getKey();
+  if (key) return key;
+  const { token } = await chrome.storage.local.get('token');
+  if (!token) return null;
+  const derived = await sha256(token);
+  await setKey(derived);
+  await chrome.storage.local.remove('token');
+  return derived;
+}
+
+async function settings() {
+  const { server } = await chrome.storage.local.get('server');
+  return { server: checkedServer(server ?? DEFAULT_SERVER), token: await pairingKey() };
+}
+
+/**
+ * One request to Keys. Turns "not running", "not connected" and "locked" into clear codes.
+ * Requests are signed (the key itself never leaves this worker), and every answer has to carry
+ * Keys' proof that it holds the same key. `sensitive` requests (a password goes out) first check
+ * that proof, so a program squatting on Keys' port while Keys is closed learns nothing.
+ */
+async function keys(path, { method = 'GET', body, sensitive = false } = {}) {
+  const { server, token: stored } = await settings();
+  const key = path.startsWith('/pair') ? null : stored; // pairing is how a key is obtained: nothing to sign or prove yet
+  if (sensitive && key) await keys('/status');
+  const url = new URL(`${server}/api/extension${path}`);
+  const text = body === undefined ? undefined : JSON.stringify(body);
+  const nonce = b64(crypto.getRandomValues(new Uint8Array(18))).replace(/\+/g, '-').replace(/\//g, '_');
+  const headers = { 'x-keys-extension': '1', ...(text !== undefined ? { 'content-type': 'application/json' } : {}) };
+  if (key) {
+    const ts = String(Date.now());
+    headers['x-keys-extension-auth'] = `${ts}.${nonce}.${await hmac(key, `${method}\n${url.pathname}${url.search}\n${ts}\n${nonce}\n${await sha256(text ?? '')}`)}`;
+  }
   let res;
   try {
-    res = await fetch(`${server}/api/extension${path}`, {
-      method,
-      cache: 'no-store',
-      headers: {
-        'x-keys-extension': '1',
-        ...(token ? { 'x-keys-extension-token': token } : {}),
-        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    res = await fetch(url, { method, cache: 'no-store', headers, body: text });
   } catch {
     throw new KeysError('Keys isn’t running on this computer.', 'OFFLINE');
   }
@@ -46,8 +98,12 @@ async function keys(path, { method = 'GET', body } = {}) {
   } catch {
     /* not Keys */
   }
+  // Only Keys knows the key: anything else answering here is ignored, whatever it says.
+  const proven = key && res.headers.get('x-keys-proof') === (await hmac(key, `keys-server\n${nonce}`));
+  if (key && !proven && data?.code !== 'NOT_PAIRED' && !(res.status === 403 && data?.code === 'FORBIDDEN')) {
+    throw new KeysError('That address isn’t Keys.', 'OFFLINE');
+  }
   if (!res.ok) {
-    if (data?.code === 'NOT_PAIRED') await chrome.storage.local.remove('token');
     // Older versions of Keys answer, but don't know about the extension.
     // (A 403 with Keys' own code, like WRONG_SITE, is a real answer, not an old version.)
     if ((res.status === 403 && (!data?.code || data.code === 'FORBIDDEN')) || (res.status === 404 && !data?.code)) {
@@ -101,7 +157,7 @@ async function pollPairing() {
   const res = await keys(`/pair/${encodeURIComponent(pairing.requestId)}`);
   if (res.status === 'approved') {
     await chrome.storage.session.remove('pairingExpired');
-    await chrome.storage.local.set({ token: res.token });
+    await setKey(await sha256(res.token));
     await chrome.storage.session.remove('pairing');
   } else if (res.status === 'expired') {
     await chrome.storage.session.remove('pairing');
@@ -128,7 +184,7 @@ async function openApp(hash = '') {
     const { pairing } = await chrome.storage.session.get('pairing');
     appUrl = pairing?.appUrl ?? (await settings()).server;
   }
-  const origin = new URL(appUrl).origin;
+  const origin = checkedServer(appUrl); // only ever a page on this computer
   const [existing] = await chrome.tabs.query({ url: `${origin}/*` });
   if (existing?.id !== undefined) {
     await chrome.tabs.update(existing.id, { active: true, ...(hash ? { url: `${origin}/${hash}` } : {}) });
@@ -214,6 +270,8 @@ async function mayOffer(url) {
 // password is sent to the page only after a real click on one of its own logins.
 async function fromPage(msg, sender) {
   if (sender.frameId !== 0 || !sender.tab?.id || !sender.url) throw new KeysError('Not allowed', 'FORBIDDEN');
+  // A sandboxed document (opaque origin) at a site's address isn't that site.
+  if (sender.origin !== undefined && sender.origin !== new URL(sender.url).origin) throw new KeysError('Not allowed', 'FORBIDDEN');
   switch (msg.type) {
     case 'keys:page-logins': {
       const s = await state();
@@ -250,9 +308,11 @@ async function fromPage(msg, sender) {
       const run = (async () => {
         let check;
         try {
-          check = await keys('/save/check', { method: 'POST', body: { url: sender.url, username, password } });
-        } catch {
-          return null; // locked, offline or not connected: stay quiet
+          check = await keys('/save/check', { method: 'POST', body: { url: sender.url, username, password }, sensitive: true });
+        } catch (e) {
+          // Locked (auto-lock is common): still ask; saving tells the person to unlock first.
+          if (e.code !== 'LOCKED') return null; // offline or not connected: stay quiet
+          check = { status: 'new', title: null };
         }
         if (check.status === 'same') {
           await chrome.storage.session.remove(`pending:${tabId}`);
@@ -278,7 +338,7 @@ async function fromPage(msg, sender) {
       const p = await pendingFor(sender.tab.id, sender.url);
       if (!p) throw new KeysError('This question timed out. Sign in again to save.', 'NOTHING');
       // Only forgotten once it's saved: if Keys is locked, the person can unlock and press Save again.
-      const saved = await keys('/save', { method: 'POST', body: { url: p.url, username: p.username, password: p.password } });
+      const saved = await keys('/save', { method: 'POST', body: { url: p.url, username: p.username, password: p.password }, sensitive: true });
       await chrome.storage.session.remove(`pending:${sender.tab.id}`);
       return saved;
     }
@@ -316,7 +376,7 @@ async function fromPopup(msg) {
       await chrome.storage.session.remove(['pairing', 'pairingExpired']);
       return { ok: true };
     case 'keys:unlock':
-      return keys('/unlock', { method: 'POST', body: { secret: msg.secret } });
+      return keys('/unlock', { method: 'POST', body: { secret: msg.secret }, sensitive: true });
     case 'keys:lock':
       return keys('/lock', { method: 'POST' });
     case 'keys:logins':
@@ -332,7 +392,7 @@ async function fromPopup(msg) {
       return { ok: true };
     case 'keys:set-server': {
       const url = new URL(msg.server);
-      if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.protocol !== 'http:') {
+      if (!LOOPBACK.includes(url.hostname) || url.protocol !== 'http:') {
         throw new KeysError('Keys only runs on this computer: use http://127.0.0.1 or http://localhost', 'BAD_SERVER');
       }
       await chrome.storage.local.set({ server: url.origin });
@@ -368,13 +428,24 @@ async function fromPopup(msg) {
       try {
         await keys('/disconnect', { method: 'POST' });
       } finally {
-        await chrome.storage.local.remove('token');
+        await setKey(null);
       }
       return { ok: true };
     default:
       throw new KeysError('Unknown request', 'ERROR');
   }
 }
+
+// Typed passwords waiting for an answer are dropped once the question lapses, even if no page asks again.
+const SWEEP_ALARM = 'keys-sweep';
+async function sweepPending() {
+  const all = await chrome.storage.session.get(null);
+  const stale = Object.entries(all).filter(([k, v]) => (k.startsWith('pending:') && Date.now() - v.at > PENDING_MS) || (k.startsWith('user:') && Date.now() - v.at > 10 * 60_000));
+  if (stale.length) await chrome.storage.session.remove(stale.map(([k]) => k));
+}
+chrome.alarms.create(SWEEP_ALARM, { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => alarm.name === SWEEP_ALARM && void sweepPending());
+void sweepPending();
 
 // A closed tab's pending login goes with it.
 chrome.tabs.onRemoved.addListener((tabId) => void chrome.storage.session.remove([`pending:${tabId}`, `user:${tabId}`]));

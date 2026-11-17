@@ -322,8 +322,8 @@ function lockedPin(length) {
 function loginRow(login, { canFill, tab, clearSeconds }) {
   const copy = async (what) => {
     try {
-      const secret = await ask('keys:secret', { id: login.id });
-      await navigator.clipboard.writeText(what === 'password' ? secret.password : secret.username);
+      // The list already has the username: only a password is fetched from Keys.
+      await navigator.clipboard.writeText(what === 'password' ? (await ask('keys:secret', { id: login.id })).password : login.username);
       if (what === 'password') {
         await ask('keys:copied', { seconds: clearSeconds });
         toast(clearSeconds ? `Copied password. Clears in ${Math.max(30, clearSeconds)}s` : 'Copied password');

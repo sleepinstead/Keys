@@ -5,7 +5,7 @@
 // only after a real click (or Enter) on one of them. Top frame only, and never on Keys itself.
 
 (() => {
-  if (window.top !== window) return;
+  if (window.top !== window || window.origin === 'null') return; // top frame only; never in sandboxed documents
   if (document.querySelector('meta[name="application-name"][content="Keys"]')) return;
 
   // After the extension is reloaded or updated, the copy already in a page is cut off from it.
@@ -33,6 +33,8 @@
   const typed = new WeakMap(); // field → the value the person last typed into it themselves
   const keysFilled = new WeakSet(); // fields Keys filled: nothing new to save there
   const fresh = () => performance.now() - shownAt < 450;
+  // The person's last click or Tab: the menu opens only for focus they caused, never for a page's own focus() calls.
+  let gesture = { at: 0, target: null, tab: false };
 
   // ------------------------------------------------------------------ fields
 
@@ -42,6 +44,27 @@
     const s = getComputedStyle(el);
     return r.width > 1 && r.height > 1 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.05;
   };
+  /** Really on screen: inside the viewport, and no see-through ancestor (a page hiding a field to catch a fill). */
+  const onScreen = (el) => {
+    if (!visible(el)) return false;
+    const r = el.getBoundingClientRect();
+    if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) return false;
+    for (let n = el.parentElement ?? el.getRootNode().host; n; n = n.parentElement ?? n.getRootNode().host) {
+      if (Number(getComputedStyle(n).opacity) <= 0.05) return false;
+    }
+    return true;
+  };
+  /**
+   * Whether the browser itself says an element is fully visible: not covered by anything, not
+   * see-through or transformed (IntersectionObserver v2). Clicks on Keys' menu and prompt only count then.
+   */
+  function watchVisible(el) {
+    const state = { visible: false };
+    const io = new IntersectionObserver((entries) => (state.visible = entries.at(-1).isVisible), { trackVisibility: true, delay: 100, threshold: [1] });
+    io.observe(el);
+    state.stop = () => io.disconnect();
+    return state;
+  }
   const usable = (i) => i instanceof HTMLInputElement && !i.disabled && !i.readOnly && visible(i);
   const typeOf = (i) => (i.getAttribute('type') || 'text').toLowerCase();
   const autoOf = (i) => (i.getAttribute('autocomplete') || '').toLowerCase();
@@ -67,7 +90,7 @@
 
   /** Login fields get the menu. Loose ones (an email box on a page with no password yet) only when Keys has a login for the site. */
   function loginKind(el) {
-    if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return null;
+    if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly || !onScreen(el)) return null;
     if (isCurrentPassword(el)) return 'strong';
     if (isUsernameField(el, true)) return 'strong';
     if (isUsernameField(el, false)) return 'loose';
@@ -106,7 +129,7 @@
   /** Fills the form around `anchor` (or the page's login form, for the popup's Fill button). */
   function fill(anchor, { username, password }) {
     // The site may have re-rendered its form while Keys was answering: use the field in focus now.
-    if (anchor && !anchor.isConnected) {
+    if (anchor && (!anchor.isConnected || !onScreen(anchor))) {
       const now = deepActive();
       anchor = now instanceof HTMLInputElement && loginKind(now) ? now : null;
     }
@@ -124,6 +147,8 @@
     }
     filling = true;
     try {
+      if (user && !onScreen(user)) user = null; // never into a field the person can't see
+      if (pass && !onScreen(pass)) pass = null;
       if (user && username) setValue(user, username);
       if (pass && password) setValue(pass, password);
       if (pass) keysFilled.add(pass);
@@ -194,7 +219,10 @@
     }
     @media (prefers-reduced-motion: reduce) { .menu { animation: none; } }`;
 
+  let menuSeen = null;
   function close() {
+    menuSeen?.stop();
+    menuSeen = null;
     clearInterval(follow);
     follow = null;
     host?.remove();
@@ -259,7 +287,10 @@
   /** Only the person's own click or key counts. Keys the menu handles don't reach the page. */
   function wire(b, run) {
     b.addEventListener('click', (e) => {
-      if (e.isTrusted && !fresh()) run();
+      if (!e.isTrusted || fresh()) return;
+      // Covered or faded by the page (a decoy over the menu): don't act on the click; offer the toolbar popup instead.
+      if (!menuSeen?.visible) return void (close(), ask({ type: 'keys:open-popup' }));
+      run();
     });
     b.addEventListener('keydown', (e) => {
       const all = [...root.querySelectorAll('button')];
@@ -330,19 +361,16 @@
       }
     }
     shownAt = performance.now();
+    menuSeen = watchVisible(menuEl);
     place();
     follow = setInterval(place, 250); // pages re-render, animate and move fields around
   }
 
   async function offer(anchor, kind) {
-    if (!cache || Date.now() - cache.at > 10_000) {
-      const result = await ask({ type: 'keys:page-logins' });
-      // Only reuse an unlocked answer: "locked" must clear the moment Keys is unlocked.
-      cache = result?.ok && result.result.state === 'unlocked' ? { at: Date.now(), result } : null;
-      if (!cache) {
-        if (!alive() || field !== anchor || deepActive() !== anchor) return;
-        return present(anchor, kind, result);
-      }
+    // An unlocked answer is reused for 10 s; any other only for 2 s ("locked" must clear soon after
+    // unlocking), which also keeps a page focusing fields in a loop from flooding Keys.
+    if (!cache || Date.now() - cache.at > (cache.result?.ok && cache.result.result.state === 'unlocked' ? 10_000 : 2000)) {
+      cache = { at: Date.now(), result: await ask({ type: 'keys:page-logins' }) };
     }
     if (field !== anchor || deepActive() !== anchor) return;
     present(anchor, kind, cache.result);
@@ -384,8 +412,10 @@
     // Not connected, Keys not running, or nothing saved here: stay quiet rather than nag.
   }
 
-  function maybeOffer(el) {
+  function maybeOffer(el, byPerson = false) {
     if (!alive() || filling) return;
+    const recent = performance.now() - gesture.at < 1000;
+    if (!byPerson && !(recent && (gesture.tab || gesture.target === el))) return;
     const kind = loginKind(el);
     if (!kind) return;
     field = el;
@@ -430,7 +460,7 @@
     const fingerprint = `${username}\n${pass.value}`;
     if (fingerprint === lastCaptured) return;
     lastCaptured = fingerprint;
-    const startUrl = location.href;
+    const startPath = location.origin + location.pathname; // "?error=1" or a #hash on the same page isn't a success
     void ask({ type: 'keys:page-captured', username, password: pass.value }).then((res) => {
       if (!res?.ok || !res.result.offer) return;
       // Ask only once the sign-in has gone through: the page moved on, or the form went away.
@@ -439,7 +469,7 @@
       const started = Date.now();
       const wait = () => {
         if (!alive() || saveHost) return;
-        if (location.href !== startUrl || !pass.isConnected || !visible(pass)) return showSave(res.result.offer);
+        if (location.origin + location.pathname !== startPath || !pass.isConnected || !visible(pass)) return showSave(res.result.offer);
         if (Date.now() - started < 8000) setTimeout(wait, 400);
       };
       setTimeout(wait, 400);
@@ -521,6 +551,7 @@
     const leaving = saveHost;
     saveHost = null;
     if (!leaving) return;
+    leaving.__seen?.stop();
     const card = leaving.__card;
     if (now || !card || matchMedia('(prefers-reduced-motion: reduce)').matches) return leaving.remove();
     card.dataset.state = 'leaving';
@@ -610,7 +641,14 @@
         save.replaceChildren(sp, 'Saving');
       } else save.replaceChildren(saveLabel);
     };
-    const trusted = (b, run) => b.addEventListener('click', (e) => e.isTrusted && !b.disabled && !fresh() && run());
+    const seen = watchVisible(card);
+    hostEl.__seen = seen;
+    const trusted = (b, run) =>
+      b.addEventListener('click', (e) => {
+        if (!e.isTrusted || b.disabled || fresh()) return;
+        if (!seen.visible) return void (error.textContent = 'Something on the page is covering this. Scroll or close it, then try again.');
+        run();
+      });
     const dismiss = (neverAgain) => {
       closeSave();
       void ask({ type: 'keys:page-dismiss', never: neverAgain });
@@ -637,7 +675,7 @@
       tick.className = 'tick';
       tick.append(svg(['M20 6 9 17l-5-5']));
       const words = document.createElement('span');
-      words.append(res.result.status === 'updated' ? 'Password updated in Keys' : 'Saved to Keys');
+      words.append(res.result.status === 'updated' ? 'Password updated in Keys' : res.result.status === 'same' ? 'Already in Keys' : 'Saved to Keys');
       const small = document.createElement('small');
       small.textContent = offer.username ? `${offer.username} · ${offer.host}` : offer.host;
       words.append(small);
@@ -680,6 +718,8 @@
     },
     true,
   );
+  document.addEventListener('pointerdown', (e) => e.isTrusted && (gesture = { at: performance.now(), target: e.composedPath()[0], tab: false }), true);
+  document.addEventListener('keydown', (e) => e.isTrusted && e.key === 'Tab' && (gesture = { at: performance.now(), target: null, tab: true }), true);
   document.addEventListener(
     'focusout',
     (e) => {
@@ -699,7 +739,7 @@
       if (!alive()) return;
       const el = e.composedPath()[0];
       if (host && !e.composedPath().includes(host) && el !== field) close();
-      if (!host && e.isTrusted && el instanceof HTMLInputElement && el === deepActive()) maybeOffer(el);
+      if (!host && e.isTrusted && el instanceof HTMLInputElement && el === deepActive()) maybeOffer(el, true);
     },
     true,
   );
@@ -717,7 +757,7 @@
           e.preventDefault();
           e.stopPropagation();
           root.querySelector('.list button, button')?.focus();
-        } else if (deepActive() === field) maybeOffer(field);
+        } else if (e.isTrusted && deepActive() === field) maybeOffer(field, true);
       }
     },
     true,
@@ -756,7 +796,7 @@
   document.addEventListener(
     'click',
     (e) => {
-      if (!alive() || !e.isTrusted) return;
+      if (!alive() || !e.isTrusted || !document.querySelector('input[type="password"]')) return;
       const b = e.composedPath()[0]?.closest?.('button, input[type="submit"], [role="button"]');
       if (!b || b.closest('keys-autofill, keys-save')) return;
       const label = `${b.textContent} ${b.getAttribute('value') ?? ''} ${b.getAttribute('aria-label') ?? ''}`.toLowerCase();
@@ -767,9 +807,7 @@
   // After a sign-in the page usually changes: the new page shows the question still waiting for this tab.
   void ask({ type: 'keys:page-pending' }).then((res) => res?.ok && res.result.offer && showSave(res.result.offer));
 
-  // A field that was focused before this script loaded (autofocus) still gets the menu.
-  const initial = deepActive();
-  if (initial instanceof HTMLInputElement) maybeOffer(initial);
+  // A field focused before this script loaded (autofocus) gets the menu on the person's first click or ↓ in it.
 
   // The popup's "Fill" button.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

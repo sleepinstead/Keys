@@ -24,7 +24,11 @@ import type { BrowserPairing } from '../shared/types.ts';
  */
 
 export const EXTENSION_HEADER = 'x-keys-extension';
-export const EXTENSION_TOKEN_HEADER = 'x-keys-extension-token';
+/** `<timestamp>.<nonce>.<HMAC>`: the extension proves it holds the pairing key without sending it. */
+export const EXTENSION_AUTH_HEADER = 'x-keys-extension-auth';
+/** HMAC of the request's nonce: Keys proves it is Keys before the extension trusts an answer or sends a password. */
+export const EXTENSION_PROOF_HEADER = 'x-keys-proof';
+const SKEW_MS = 2 * 60_000;
 
 const PAIR_TTL_MS = 3 * 60_000;
 const MAX_PENDING = 5;
@@ -47,6 +51,9 @@ interface Pending {
 }
 
 const hashToken = (token: string) => crypto.createHash('sha256').update(token).digest('base64');
+const hmac = (key: string, text: string) => crypto.createHmac('sha256', key).update(text).digest('base64');
+const sha256 = (data: Buffer | string) => crypto.createHash('sha256').update(data).digest('base64');
+type RawRequest = Request & { rawBody?: Buffer };
 
 function newCode(): string {
   return Array.from({ length: 6 }, () => CODE_ALPHABET[crypto.randomInt(CODE_ALPHABET.length)]).join('');
@@ -99,8 +106,10 @@ interface Deps {
 }
 
 export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: Deps) {
-  const json = express.json({ limit: '64kb' });
+  // The raw body is kept: request signatures cover it.
+  const json = express.json({ limit: '64kb', verify: (req, _res, buf) => void ((req as RawRequest).rawBody = buf) });
   const pending = new Map<string, Pending>();
+  const usedNonces = new Map<string, number>(); // nonce → when it may be forgotten (a replayed request is refused)
 
   const sweep = () => {
     const now = Date.now();
@@ -165,21 +174,30 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
     next();
   };
 
-  /** The paired browser making this request, or a 401 that tells the extension to pair again. */
-  const pairingOf = (req: Request): StoredPairing => {
-    const token = req.headers[EXTENSION_TOKEN_HEADER];
-    if (typeof token === 'string' && token) {
-      const hash = hashToken(token);
+  /**
+   * The paired browser making this request, or a 401 that tells the extension to pair again.
+   * The extension never sends its key (the token's hash, which is all Keys keeps): it signs the
+   * method, path, time, a fresh nonce and the body. A copied request can't be replayed or altered,
+   * and Keys answers with its own proof so a program squatting on the port can't pose as Keys.
+   */
+  const pairingOf = (req: Request, res: Response): StoredPairing => {
+    const header = req.headers[EXTENSION_AUTH_HEADER];
+    const [ts, nonce, mac] = typeof header === 'string' ? header.split('.') : [];
+    const now = Date.now();
+    for (const [n, until] of usedNonces) if (until < now) usedNonces.delete(n);
+    if (ts && nonce && mac && /^[A-Za-z0-9_-]{16,64}$/.test(nonce) && Math.abs(now - Number(ts)) < SKEW_MS && !usedNonces.has(nonce)) {
+      const body = sha256((req as RawRequest).rawBody ?? '');
+      const message = `${req.method}\n${req.originalUrl}\n${ts}\n${nonce}\n${body}`;
       const list = readPairings();
-      const found = list.find((p) => safeEqual(p.hash, hash));
-      // A token copied out of the extension doesn't work from anywhere else.
+      const found = list.find((p) => safeEqual(hmac(p.hash, message), mac));
       // Chrome leaves Origin off some extension requests (plain GETs), so only a different one is refused.
       const origin = req.headers.origin;
-      if (found && found.origin && origin && origin !== found.origin) throw new HttpError(401, 'This browser isn’t connected to Keys', 'NOT_PAIRED');
-      if (found) {
+      if (found && !(found.origin && origin && origin !== found.origin)) {
+        usedNonces.set(nonce, now + 2 * SKEW_MS);
+        res.setHeader(EXTENSION_PROOF_HEADER, hmac(found.hash, `keys-server\n${nonce}`));
         // Remembered roughly, so a busy page doesn't write to the database on every request.
-        if (!found.lastUsedAt || Date.now() - found.lastUsedAt > 60_000) {
-          found.lastUsedAt = Date.now();
+        if (!found.lastUsedAt || now - found.lastUsedAt > 60_000) {
+          found.lastUsedAt = now;
           writePairings(list);
         }
         return found;
@@ -228,7 +246,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
   });
 
   ext.get('/status', (req, res) => {
-    const pairing = pairingOf(req);
+    const pairing = pairingOf(req, res);
     const key = sessions.peek(false);
     res.json({
       unlocked: key !== null,
@@ -241,7 +259,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
 
   /** Logins for the page (or all of them, for the popup's search). Never includes passwords. */
   ext.get('/logins', (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     const key = keyFor(false);
     const url = typeof req.query.url === 'string' ? req.query.url : '';
     const all = req.query.all === '1';
@@ -256,7 +274,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
 
   /** A login's username and password, but only for a page it belongs to. */
   ext.post('/fill', json, (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     const key = keyFor(true);
     const id = requireString(req.body?.id, 'Item', 64);
     const url = requireString(req.body?.url, 'Page address', 4096);
@@ -300,7 +318,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
   };
 
   ext.post('/save/check', json, (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     const key = keyFor(false);
     const { url, username, password } = saveInput(req.body);
     const existing = loginFor(key, url, username);
@@ -308,7 +326,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
   });
 
   ext.post('/save', json, (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     const key = keyFor(true);
     const { url, site, username, password } = saveInput(req.body);
     const existing = loginFor(key, url, username);
@@ -337,7 +355,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
 
   /** For the popup's copy buttons, which the person presses themselves. */
   ext.post('/secret', json, (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     const key = keyFor(true);
     const entry = vault.getEntry(key, requireString(req.body?.id, 'Item', 64));
     if (entry.type !== 'login') throw new HttpError(400, 'Only logins can be copied here');
@@ -346,7 +364,7 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
 
   /** Unlocks Keys from the extension, with the same password checks and lockout as the app. */
   ext.post('/unlock', json, async (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     if (sessions.unlocked) return void res.json({ unlocked: true });
     const secret = requireString(req.body?.secret, 'Password', 1024);
     const key = await vault.unlock(secret);
@@ -362,14 +380,14 @@ export function createExtensionApi({ vault, storage, sessions, quick, appUrl }: 
   });
 
   ext.post('/lock', (req, res) => {
-    pairingOf(req);
+    pairingOf(req, res);
     sessions.lock();
     res.json({ unlocked: false });
   });
 
   /** The extension forgetting itself ("Disconnect" in its settings). */
   ext.post('/disconnect', (req, res) => {
-    const pairing = pairingOf(req);
+    const pairing = pairingOf(req, res);
     writePairings(readPairings().filter((p) => p.id !== pairing.id));
     res.json({ ok: true });
   });

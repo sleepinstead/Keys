@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "license": "MIT",
   "private": true,
-  "description": "Keys in the browser: the same app and vault as the desktop app, served by Node on 127.0.0.1:5174.",
+  "description": "Keys in the browser: the app and its vault, served by Node on 127.0.0.1:5174.",
   "type": "module",
   "engines": {
     "node": ">=24.7"
@@ -13,7 +13,8 @@
     "build": "npm run typecheck && vite build",
     "start": "node server/index.ts --production",
     "dev": "node scripts/dev.mjs",
-    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json"
+    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json",
+    "test": "node --import ./test/env.ts --test \"test/*.test.ts\""
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.3.0",
