@@ -323,6 +323,8 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
       ? list.sort((a, b) => byName(a.title, b.title))
       : list.sort((a, b) => b.updatedAt - a.updatedAt);
   }, [entries, haystacks, viewKey(view), query, sort]);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   const listTitle =
     filter.kind === 'all'
@@ -455,6 +457,8 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
 
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
+  const viewRef = useRef(view);
+  viewRef.current = view;
   // Registered once; the handler is read through a ref so it always sees the current state.
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useEffect(() => {
@@ -492,6 +496,21 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
       } else if (e.key === 'n') {
         e.preventDefault();
         create('login');
+      } else if (
+        (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+        viewRef.current.kind === 'items' &&
+        visibleRef.current.length > 0 &&
+        // The list handles its own arrows; the sidebar and the item's own pane keep theirs.
+        !document.activeElement?.closest('.entry-list, .sidebar, .detail')
+      ) {
+        // Wherever focus is (after a click it can land outside the list), ↑ and ↓ move through the items.
+        e.preventDefault();
+        const list = visibleRef.current;
+        const i = list.findIndex((x) => x.id === selectedRef.current);
+        const next = list[i < 0 ? (e.key === 'ArrowDown' ? 0 : list.length - 1) : e.key === 'ArrowDown' ? Math.min(list.length - 1, i + 1) : Math.max(0, i - 1)]!;
+        setSelectedId(next.id);
+        // Focus follows, so the next arrow is handled by the list itself (and the row scrolls into view).
+        requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(`.entry-list [data-entry-id="${CSS.escape(next.id)}"]`)?.focus({ preventScroll: false })));
       } else if (e.key === 'e' && selectedRef.current) {
         e.preventDefault();
         void api.entry(selectedRef.current).then((entry) => openRef.current(entry), () => {});
