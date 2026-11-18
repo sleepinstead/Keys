@@ -4,7 +4,7 @@ A read-only web app for Safari. It downloads your encrypted `Keys.sqlite` from G
 
 ## 1. Pick where to host it
 
-It's static files, so any HTTPS host works. The steps below use GitHub Pages. The address will be something like `https://<your-github-name>.github.io/keys-phone/`. You need it for step 2.
+It's static files, so any HTTPS host works. **Give it an origin of its own**: everything on the same origin can read this app's saved copy and frame it, and every GitHub Pages project of an account shares `https://<your-github-name>.github.io`. So use a custom subdomain (GitHub Pages with a CNAME, e.g. `https://keys.example.com/`), or a GitHub account or organisation that hosts nothing else. The steps below use GitHub Pages with a custom domain. You need the address for step 2.
 
 ## 2. Google Cloud setup (once, about 10 minutes)
 
@@ -16,8 +16,8 @@ It's static files, so any HTTPS host works. The steps below use GitHub Pages. Th
    - **Audience / Test users**: add your own Google account. Leave the app in **Testing**.
 4. **Credentials → Create credentials → OAuth client ID**:
    - Type **Web application**.
-   - **Authorized JavaScript origins**: `https://<your-github-name>.github.io`
-   - **Authorized redirect URIs**: the full app address, e.g. `https://<your-github-name>.github.io/keys-phone/` (with the trailing slash).
+   - **Authorized JavaScript origins**: your app's own origin, e.g. `https://keys.example.com`
+   - **Authorized redirect URIs**: the full app address, e.g. `https://keys.example.com/` (with the trailing slash).
    - Copy the **Client ID**.
 
 No API key is needed. The client ID is the only Google value in the page; it's public by design and only works from the addresses you listed.
@@ -33,7 +33,7 @@ VITE_GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com
 Then:
 
 ```bash
-npm run phone:build
+npm run build
 ```
 
 The app is in `dist-phone/`.
@@ -65,7 +65,7 @@ It locks after 5 minutes idle, or a minute after you leave the app.
 ## Try it on the computer
 
 ```bash
-npm run phone:dev
+npm run dev
 ```
 
 Opens on http://localhost:5180. Google sign-in only works on the addresses you allowed in step 2 (add `http://localhost:5180` to both lists to test locally).

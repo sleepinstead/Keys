@@ -565,3 +565,24 @@ h2 {
     animation: none;
   }
 }
+
+/* Veiled while the app is in the background, so the app switcher's snapshot shows nothing. */
+.veiled {
+  visibility: hidden;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* 44pt touch targets, and a visible ring for keyboard users (iPad with a keyboard). */
+.btn.small {
+  min-height: 44px;
+}
+:focus-visible {
+  outline: 2px solid var(--text-3);
+  outline-offset: 2px;
+}

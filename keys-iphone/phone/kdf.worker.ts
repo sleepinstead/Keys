@@ -7,6 +7,8 @@ self.onmessage = async (e: MessageEvent<{ password: string; kdf: Kdf }>) => {
     const kek = await deriveKek(e.data.password, e.data.kdf);
     self.postMessage({ kek }, { transfer: [kek.buffer] });
   } catch (err) {
-    self.postMessage({ error: err instanceof Error ? err.message : 'Unlock failed' });
+    // Argon2 needs a lot of memory (much more for PIN vaults); say so plainly when the phone runs out.
+    const memory = err instanceof RangeError || (err instanceof Error && /memory/i.test(err.message));
+    self.postMessage({ error: memory ? 'This iPhone ran out of memory while unlocking. Close other apps and try again.' : err instanceof Error ? err.message : 'Unlock failed' });
   }
 };

@@ -99,7 +99,8 @@ export interface Found {
 
 /** Every file in your Drive whose name starts with "Keys" and ends in .sqlite (sync copies included), newest first. */
 export async function findVaults(): Promise<Found[]> {
-  const q = "name contains 'Keys' and trashed = false and mimeType != 'application/vnd.google-apps.folder'";
+  // Only the person's own files: something shared with them by someone else is never offered.
+  const q = "name contains 'Keys' and trashed = false and 'me' in owners and mimeType != 'application/vnd.google-apps.folder'";
   const res = await api(`?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime,parents)&orderBy=modifiedTime desc&pageSize=50&spaces=drive`);
   const { files = [] } = (await res.json()) as { files?: (Omit<Found, 'folder'> & { parents?: string[] })[] };
   const vaults = files.filter((f) => /^keys.*\.sqlite$/i.test(f.name));

@@ -67,5 +67,47 @@ test('the phone reader unlocks PIN vaults and rejects other files', async () => 
     assert.equal(locked.credential.type, type);
     assert.equal((await decryptAll(locked, await unlock(locked, cred))).entries.length, 1);
   }
-  assert.throws(() => readVault(null as never, new Uint8Array([1, 2, 3])));
+  assert.throws(() => readVault(null as never, new Uint8Array([1, 2, 3])), /isn’t a Keys database/);
+});
+
+test('after a password change only the new one unlocks, and every item still decrypts', async () => {
+  const { call, file } = await make('violet-anchor-tundra-58-quill');
+  await call('POST', '/entries', login('A', 'b'));
+  await call('POST', '/account/change-password', { current: 'violet-anchor-tundra-58-quill', next: 'quarry-lantern-orbit-71', type: 'password' });
+  const locked = readVault(await initSqlJs(), fs.readFileSync(file));
+  await assert.rejects(unlock(locked, 'violet-anchor-tundra-58-quill'), WrongCredential);
+  assert.equal((await decryptAll(locked, await unlock(locked, 'quarry-lantern-orbit-71'))).entries[0]!.password, 'b');
+});
+
+// Files written directly with keys-web's own modules: shapes the API no longer produces.
+test('older items without an icon, legacy credentials, and files that are not Keys vaults', async () => {
+  const { Store } = await import('../../keys-web/server/db.ts');
+  const { Vault, entryAad } = await import('../../keys-web/server/vault.ts');
+  const { encryptJson } = await import('../../keys-web/server/crypto.ts');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-phone-raw-'));
+  try {
+    const file = path.join(dir, 'Keys.sqlite');
+    const store = new Store(file);
+    const key = await new Vault(store).setup('violet-anchor-tundra-58-quill');
+    const old = { type: 'login', title: 'Old', username: 'me', password: 'p', url: '', notes: '', codes: '', categoryId: null, favorite: false };
+    store.insert('entries', { id: 'old-item', blob: encryptJson(key, old, entryAad('old-item')), created_at: 1, updated_at: 1 });
+    store.setMeta('credential', JSON.stringify({ type: 'pattern' }));
+    store.close();
+
+    const SQL = await initSqlJs();
+    const locked = readVault(SQL, fs.readFileSync(file));
+    assert.deepEqual(locked.credential, { type: 'password' }, 'a pattern vault opens with the password field');
+    const [item] = (await decryptAll(locked, await unlock(locked, 'violet-anchor-tundra-58-quill'))).entries;
+    assert.equal(item!.icon, '');
+    assert.deepEqual(item!.customFields, []);
+
+    const other = new SQL.Database();
+    other.run('CREATE TABLE t (x)');
+    assert.throws(() => readVault(SQL, other.export()), /isn’t a Keys database/);
+    const newer = new SQL.Database(fs.readFileSync(file));
+    newer.run('PRAGMA user_version = 99');
+    assert.throws(() => readVault(SQL, newer.export()), /newer version of Keys/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

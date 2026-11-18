@@ -9,6 +9,8 @@ const DEK_AAD = 'vaultx:dek:v1';
 const entryAad = (id: string) => `vaultx:entry:${id}`;
 const categoryAad = (id: string) => `vaultx:category:${id}`;
 const APP_ID = 0x4b455953; // PRAGMA application_id of a Keys database ("KEYS")
+/** The newest database layout this app reads (keys-web/server/db.ts MIGRATIONS.length). */
+const MAX_SCHEMA = 2;
 
 export interface Kdf {
   algorithm: 'argon2id';
@@ -54,7 +56,13 @@ function isValidKdf(raw: unknown): raw is Kdf {
   );
 }
 
-const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const b64 = (s: string) => {
+  try {
+    return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  } catch {
+    throw new Error('This database is damaged (its key can’t be read)');
+  }
+};
 
 /** Opens the file and pulls out what unlocking needs. Throws if it isn't a Keys database. */
 export function readVault(SQL: SqlJsStatic, bytes: Uint8Array): LockedVault {
@@ -66,9 +74,10 @@ export function readVault(SQL: SqlJsStatic, bytes: Uint8Array): LockedVault {
   }
   try {
     const one = (sql: string) => db.exec(sql)[0]?.values ?? [];
-    const appId = one('PRAGMA application_id')[0]?.[0];
+    if (one('PRAGMA application_id')[0]?.[0] !== APP_ID) throw new Error('That file isn’t a Keys database');
     const meta = new Map(one('SELECT key, value FROM meta') as [string, string][]);
-    if (appId !== APP_ID || !meta.get('wrapped_key')) throw new Error('That file isn’t a Keys database, or it has no vault yet');
+    if (!meta.get('wrapped_key')) throw new Error('That file isn’t a Keys database, or it has no vault yet');
+    if (Number(one('PRAGMA user_version')[0]?.[0] ?? 0) > MAX_SCHEMA) throw new Error('This database was made by a newer version of Keys. Update this app.');
     const kdf: unknown = JSON.parse(meta.get('kdf') ?? 'null');
     if (!isValidKdf(kdf)) throw new Error('This database has invalid key settings');
     return {
@@ -154,7 +163,9 @@ export async function decryptAll(vault: LockedVault, key: CryptoKey): Promise<{ 
   const entries: PhoneEntry[] = [];
   for (const row of vault.entries) {
     try {
-      entries.push({ ...json<EntryData>(await open(key, row.blob, entryAad(row.id))), id: row.id, updatedAt: row.updatedAt });
+      const d = json<EntryData>(await open(key, row.blob, entryAad(row.id)));
+      // Older items have no icon or extra fields (the server fills these in the same way).
+      entries.push({ ...d, icon: d.icon ?? '', customFields: d.customFields ?? [], id: row.id, updatedAt: row.updatedAt });
     } catch {
       /* skip */
     }

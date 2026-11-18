@@ -100,7 +100,10 @@ async function useBytes(next: cache.Cached) {
 
 async function decrypt() {
   if (!locked || !key) return;
-  ({ entries, categories } = await decryptAll(locked, key));
+  const k = key;
+  const result = await decryptAll(locked, k);
+  if (key !== k) return; // locked (or unlocked again) meanwhile: don't bring the items back
+  ({ entries, categories } = result);
   if (openId && !entries.some((e) => e.id === openId)) openId = null;
 }
 
@@ -233,10 +236,21 @@ const bumpIdle = () => {
 };
 addEventListener('pointerdown', bumpIdle, { passive: true });
 addEventListener('keydown', bumpIdle);
+// Hidden (app switcher, another app): revealed values are masked again and the screen is veiled,
+// so the switcher's snapshot shows nothing. Coming back, the lock check runs before anything shows.
+const veil = () => {
+  if (!key) return;
+  render(); // re-renders every field masked
+  root.classList.add('veiled');
+};
+addEventListener('pagehide', veil);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) hiddenAt = Date.now();
-  else {
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    veil();
+  } else {
     if (key && hiddenAt && Date.now() - hiddenAt > HIDDEN_LOCK_MS) lock();
+    root.classList.remove('veiled');
     void refresh();
   }
 });
@@ -384,7 +398,7 @@ function statusBar() {
 }
 
 function avatar(e: PhoneEntry) {
-  if (e.icon.startsWith('data:image/')) return h('img', { class: 'avatar', src: e.icon, alt: '' });
+  if ((e.icon ?? '').startsWith('data:image/')) return h('img', { class: 'avatar', src: e.icon, alt: '' });
   return h('span', { class: 'avatar', 'aria-hidden': 'true' }, (e.title.trim()[0] ?? '?').toUpperCase());
 }
 
@@ -446,11 +460,30 @@ function field(label: string, value: string, opts: { secret?: boolean; mono?: bo
   if (!value) return null;
   let shown = !opts.secret;
   const text = h('div', { class: `value${opts.mono || opts.secret ? ' mono' : ''}` });
-  const paint = () => (text.textContent = shown ? value : '•'.repeat(Math.min(value.length, 14)));
+  const paint = () => {
+    if (shown) text.textContent = value;
+    // Masked: screen readers hear "Hidden", not "bullet bullet bullet".
+    else text.replaceChildren(h('span', { 'aria-hidden': 'true' }, '•'.repeat(Math.min(value.length, 14))), h('span', { class: 'sr-only' }, 'Hidden'));
+  };
   paint();
   const reveal =
     opts.secret &&
-    h('button', { class: 'btn small', onclick: (ev: Event) => ((shown = !shown), paint(), ((ev.target as HTMLElement).textContent = shown ? 'Hide' : 'Show')) }, 'Show');
+    h(
+      'button',
+      {
+        class: 'btn small',
+        'aria-label': `Show ${label}`,
+        'aria-pressed': 'false',
+        onclick: (ev: Event) => {
+          shown = !shown;
+          paint();
+          const b = ev.currentTarget as HTMLElement;
+          b.textContent = shown ? 'Hide' : 'Show';
+          b.setAttribute('aria-pressed', String(shown));
+        },
+      },
+      'Show',
+    );
   const url = opts.link ? (/^https?:\/\//i.test(value) ? value : `https://${value}`) : null;
   return h(
     'div',
@@ -461,7 +494,7 @@ function field(label: string, value: string, opts: { secret?: boolean; mono?: bo
       { class: 'actions' },
       reveal,
       url && h('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener noreferrer' }, 'Open'),
-      h('button', { class: 'btn small', onclick: () => copyText(value, label) }, 'Copy'),
+      h('button', { class: 'btn small', 'aria-label': `Copy ${label}`, onclick: () => copyText(value, label) }, 'Copy'),
     ),
   );
 }
@@ -496,6 +529,8 @@ function detailScreen() {
 // ------------------------------------------------------------------ start
 
 async function start() {
+  // Never inside another page's frame (it could watch what's typed or shown here).
+  if (window.top !== window.self) throw new Error('Open Keys directly, not inside another page');
   drive.finishSignIn();
   if ('serviceWorker' in navigator && import.meta.env.PROD) void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
   SQL = await initSqlJs({ locateFile: () => wasmUrl });
