@@ -195,6 +195,7 @@
     button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: 100%;
       min-height: 46px; padding: 6px 8px; border-radius: 10px; cursor: pointer; }
     button:hover, button:focus-visible { background: #f4f4f5; }
+    button:active { background: #ececee; }
     
     .tile { flex: none; display: grid; place-items: center; width: 32px; height: 32px; overflow: hidden;
       border: 1px solid #e7e7e9; border-radius: 9px; background: #fafafa; color: #3f3f46;
@@ -212,6 +213,7 @@
       .menu { color: #fafafa; background: #0a0a0a; border-color: #232323;
         box-shadow: 0 24px 56px -12px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.04); }
       button:hover, button:focus-visible { background: #1c1c1c; }
+      button:active { background: #242424; }
       
       .tile { background: #111; border-color: #232323; color: #d4d4d8; }
       .head, .sub, .foot button { color: #a1a1aa; }

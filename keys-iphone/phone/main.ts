@@ -235,6 +235,8 @@ const bumpIdle = () => {
   if (key) idleTimer = window.setTimeout(lock, IDLE_LOCK_MS);
 };
 addEventListener('pointerdown', bumpIdle, { passive: true });
+// iOS Safari only shows :active (the press highlight) when the page listens for touches.
+document.addEventListener('touchstart', () => {}, { passive: true });
 addEventListener('keydown', bumpIdle);
 // Hidden (app switcher, another app): revealed values are masked again and the screen is veiled,
 // so the switcher's snapshot shows nothing. Coming back, the lock check runs before anything shows.

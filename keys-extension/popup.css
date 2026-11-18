@@ -159,7 +159,7 @@ svg {
   font-weight: 550;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), transform 0.22s var(--ease);
 }
 .btn-sm {
   gap: 6px;
@@ -211,7 +211,7 @@ svg {
   background: none;
   color: var(--text-3);
   cursor: pointer;
-  transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
+  transition: background-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.22s var(--ease);
 }
 .icon-btn:hover {
   background: var(--bg-hover);
@@ -750,4 +750,27 @@ svg {
 .body[data-searching] > .site,
 .body[data-searching] > .site + .group {
   display: none;
+}
+
+/* Press feedback, as in the app: an instant dip on press, a smooth settle on release (no bounce). */
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 0.15s, 0.15s, 0.15s, 0.08s;
+}
+.btn-block:active:not(:disabled) {
+  transform: scale(0.985); /* wide buttons travel further, so they dip less */
+}
+.icon-btn:active {
+  transform: scale(0.94);
+  transition-duration: 0.15s, 0.15s, 0.08s;
+}
+.row:active {
+  background: var(--bg-hover);
+  transition-duration: 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn:active:not(:disabled),
+  .icon-btn:active {
+    transform: none;
+  }
 }
