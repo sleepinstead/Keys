@@ -1,9 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent, ReactNode } from 'react';
-import { ArrowDownToLine, FileKey2, PanelLeftClose, PanelLeftOpen, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
-import { api } from '../api.ts';
+import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { useSettings } from '../context.tsx';
-import type { AppUpdate, Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
+import type { Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
 import { AppMark, ContextMenu, IconButton, Kbd, Tooltip, FolderIcon, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
@@ -53,13 +52,12 @@ function NavItem({
   onContextMenu?: (e: MouseEvent<HTMLButtonElement>) => void;
   menuOpen?: boolean;
 }) {
-  const collapsed = useContext(Collapsed);
-  const button = (
+  return (
+    <li>
       <button
         type="button"
         className="nav-item"
         aria-current={active ? 'page' : undefined}
-        aria-label={collapsed ? label : undefined}
         data-menu-open={menuOpen || undefined}
         onClick={onClick}
         onContextMenu={onContextMenu}
@@ -72,23 +70,9 @@ function NavItem({
           </span>
         )}
       </button>
-  );
-  // Folded to icons: the name (and count) shows beside the icon on hover.
-  return (
-    <li>
-      {collapsed ? (
-        <Tooltip content={count ? `${label} · ${count}` : label} side="right">
-          {button}
-        </Tooltip>
-      ) : (
-        button
-      )}
     </li>
   );
 }
-
-/** Whether the sidebar is folded down to a rail of icons. */
-const Collapsed = createContext(false);
 
 export function Sidebar({
   hidden,
@@ -107,8 +91,6 @@ export function Sidebar({
   auditCount,
   trashCount,
   sync,
-  collapsed,
-  onToggle,
 }: {
   /** Off-canvas on a narrow screen: kept out of the tab order and away from screen readers. */
   hidden?: boolean;
@@ -129,8 +111,6 @@ export function Sidebar({
   trashCount: number;
   /** Other computers using this file, and conflict copies to merge. */
   sync: SyncStatus | null;
-  collapsed: boolean;
-  onToggle: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -197,26 +177,20 @@ export function Sidebar({
   }
 
   const search = (
-    <Tooltip content="Search" shortcut={`${modKey}K`} side="right" disabled={!collapsed}>
-      <button type="button" className="search-trigger" onClick={onSearch} aria-label="Search">
-        <Search size={15} aria-hidden="true" />
-        <span className="search-label">Search</span>
-        <Kbd>{`${modKey}K`}</Kbd>
-      </button>
-    </Tooltip>
+    <button type="button" className="search-trigger" onClick={onSearch} aria-label="Search" aria-keyshortcuts="Meta+K Control+K">
+      <Search size={15} aria-hidden="true" />
+      <span className="search-label">Search</span>
+      <Kbd>{`${modKey}K`}</Kbd>
+    </button>
   );
 
   return (
-    <Collapsed.Provider value={collapsed}>
     <nav className="sidebar" id="main-nav" aria-label="Main" inert={hidden || undefined}>
       <div className="brand">
         <span className="brand-mark">
           <AppMark size="sm" />
           <span className="wordmark">Keys</span>
         </span>
-        <IconButton className="sidebar-toggle" label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} shortcut={`${modKey}\\`} tooltipSide={collapsed ? 'right' : 'bottom'} onClick={onToggle} aria-expanded={!collapsed} aria-controls="main-nav">
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </IconButton>
       </div>
 
       {search}
@@ -366,102 +340,14 @@ export function Sidebar({
             {sync.devices.length > 1 ? ` +${sync.devices.length - 1}` : ''}
           </p>
         )}
-        {sync?.update && <UpdateCard update={sync.update} collapsed={collapsed} />}
-        <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} collapsed={collapsed} />
+        <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} />
       </div>
     </nav>
-    </Collapsed.Provider>
-  );
-}
-
-/** Ask the page to refresh its sync status now (the update card does, so progress shows at once). */
-export const SYNC_NOW = 'keys:sync-now';
-
-/** The first real line of the release notes ("## What's new", bullets and **bold** stripped). */
-function summary(notes: string): string {
-  for (const raw of notes.split('\n')) {
-    const line = raw.replace(/^\s*(#+|[-*•]|\d+\.)\s*/, '').replace(/\*\*|__|`/g, '').trim();
-    if (line && !/^(what'?s new|what’s new|changes|fixes|improvements)\b:?$/i.test(line)) return line;
-  }
-  return '';
-}
-
-/** The desktop app found a newer version: one click downloads it, checks its signature, and restarts. */
-function UpdateCard({ update, collapsed }: { update: AppUpdate; collapsed: boolean }) {
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState(false);
-  // The app reports progress: a failed install ends "Updating…" and offers Try again.
-  useEffect(() => {
-    if (update.state !== 'installing') setStarting(false);
-    setError(update.state === 'failed');
-  }, [update.state]);
-  const busy = starting || update.state === 'installing';
-  const pct = busy && typeof update.progress === 'number' ? update.progress : null;
-  const phase = pct === null ? 'Getting ready…' : pct < 100 ? `Downloading… ${pct}%` : 'Installing…';
-  const install = async () => {
-    setStarting(true);
-    setError(false);
-    try {
-      await api.installUpdate();
-      window.dispatchEvent(new Event(SYNC_NOW));
-    } catch {
-      setStarting(false);
-      setError(true);
-    }
-  };
-  if (collapsed) {
-    // Folded: just the download button, its state in the tooltip.
-    return (
-      <Tooltip content={busy ? phase : error ? 'Update didn’t install · Try again' : `Update to Keys ${update.version}`} side="right">
-        <button type="button" className="update-rail" onClick={() => void install()} disabled={busy} aria-label={busy ? `Updating Keys. ${phase}` : `Update to Keys ${update.version}`}>
-          {busy ? <span className="update-spinner" aria-hidden="true" /> : <ArrowDownToLine size={16} />}
-        </button>
-      </Tooltip>
-    );
-  }
-  const note = summary(update.notes);
-  return (
-    <div className={`update-card${busy ? ' is-busy' : ''}${error ? ' is-failed' : ''}`}>
-      <div className="update-head">
-        <span className="update-icon" aria-hidden="true">
-          {busy ? <span className="update-spinner" /> : <ArrowDownToLine size={15} />}
-        </span>
-        <span className="update-text">
-          <strong>{busy ? 'Updating Keys' : error ? 'Update didn’t install' : 'Update available'}</strong>
-          <small>
-            {update.current ? `${update.current} → ` : ''}
-            <b>{update.version}</b>
-          </small>
-        </span>
-      </div>
-      {busy ? (
-        <div className="update-progress" role="progressbar" aria-label="Update download" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined} aria-valuetext={phase}>
-          <div className={`update-bar${pct === null ? ' is-indeterminate' : ''}`}>
-            <span style={{ width: `${pct ?? 30}%` }} />
-          </div>
-          <small>{phase} · Restarts when done</small>
-        </div>
-      ) : (
-        <>
-          {error ? <p className="update-note">Check your connection and try again. Your vault wasn’t touched.</p> : note && <p className="update-note">{note}</p>}
-          <div className="update-actions">
-            <button type="button" className="update-btn" onClick={() => void install()}>
-              {error ? 'Try again' : 'Update & restart'}
-            </button>
-            {update.releaseUrl && (
-              <a className="update-link" href={update.releaseUrl} target="_blank" rel="noreferrer">
-                What’s new
-              </a>
-            )}
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 
 /** Icon-only lock button. The tooltip says when the vault will lock itself; the icon turns red in the last minute. */
-function LockButton({ onLock, expiresAt, idleMs, collapsed }: { onLock: () => void; expiresAt: number | null; idleMs: number; collapsed: boolean }) {
+function LockButton({ onLock, expiresAt, idleMs }: { onLock: () => void; expiresAt: number | null; idleMs: number }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 1000);
@@ -481,7 +367,7 @@ function LockButton({ onLock, expiresAt, idleMs, collapsed }: { onLock: () => vo
         </>
       }
       shortcut={`${modKey}⇧L`}
-      side={collapsed ? 'right' : 'top'}
+      side="top"
     >
       <button type="button" className={`btn btn-outline lock-btn${soon ? ' is-soon' : ''}`} onClick={onLock} aria-label={`Lock now. ${note}`}>
         <Lock size={16} />

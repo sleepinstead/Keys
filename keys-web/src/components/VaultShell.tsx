@@ -3,7 +3,7 @@ import type { ComponentType } from 'react';
 import { flushSync } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Menu as MenuIcon, Search } from 'lucide-react';
-import { api, errorMessage, LOCK_EVENT } from '../api.ts';
+import { api, errorMessage, LOCK_EVENT, REFRESH_EVENT } from '../api.ts';
 import { applyAppearance } from '../App.tsx';
 import { SettingsProvider, useConfirm, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
@@ -18,7 +18,7 @@ import type { EditorState } from './EntryEditor.tsx';
 import { EntryList } from './EntryList.tsx';
 import { GeneratorView } from './Generator.tsx'; // already in the main bundle (the editor uses it)
 import type { Sort } from './EntryList.tsx';
-import { Sidebar, SYNC_NOW, viewKey } from './Sidebar.tsx';
+import { Sidebar, viewKey } from './Sidebar.tsx';
 import type { Filter, View } from './Sidebar.tsx';
 import { AppMark, EmptyState, IconButton, Kbd } from './ui.tsx';
 
@@ -89,6 +89,8 @@ function useSessionKeeper(settings: Settings, expiresAt: number | null, setExpir
   }, [settings.lockOnHiddenSeconds, lock]);
 }
 
+const ALL: Filter = { kind: 'all' };
+
 function matches(e: EntrySummary, filter: Filter, q: string, hay: string): boolean {
   if (filter.kind === 'favorites' && !e.favorite) return false;
   if (filter.kind === 'type' && e.type !== filter.type) return false;
@@ -137,12 +139,22 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
+  // The open drawer is modal: focus moves into it (the page behind is inert) and back to Menu when it closes.
+  const menuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!navOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setNavOpen(false);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('#main-nav .nav-item')?.focus());
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      menuButton.current?.focus();
+    };
   }, [navOpen]);
+  // After unlocking, typing goes straight to search (as in other password managers).
+  useEffect(() => {
+    searchRef.current?.focus({ preventScroll: true });
+  }, []);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [auditCount, setAuditCount] = useState<number | null>(null);
   const [trashCount, setTrashCount] = useState(0);
@@ -243,24 +255,22 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         busy = false;
       }
     };
-    // Every 8s; every second while an update downloads, so its progress bar moves.
-    let ticks = 0;
     void look();
-    const timer = window.setInterval(() => {
-      if (++ticks >= 8 || lastSync.current.includes('"state":"installing"')) {
-        ticks = 0;
-        void look();
-      }
-    }, 1000);
+    const timer = window.setInterval(() => void look(), 8000);
     const onFront = () => void look();
+    const onRefresh = () => {
+      void Promise.all([loadEntries(), loadCategories()]);
+      refreshAudit();
+      refreshTrash();
+    };
+    window.addEventListener(REFRESH_EVENT, onRefresh);
     window.addEventListener('focus', onFront);
-    window.addEventListener(SYNC_NOW, onFront);
     document.addEventListener('visibilitychange', onFront);
     return () => {
       stopped = true;
       window.clearInterval(timer);
+      window.removeEventListener(REFRESH_EVENT, onRefresh);
       window.removeEventListener('focus', onFront);
-      window.removeEventListener(SYNC_NOW, onFront);
       document.removeEventListener('visibilitychange', onFront);
     };
   }, [loadEntries, loadCategories, refreshAudit, refreshTrash, toast]);
@@ -284,15 +294,6 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
     }
   }, [settings.categoriesEnabled, view]);
 
-  // Folding the sidebar happens at once; the choice is saved in the background.
-  const [collapsed, setCollapsed] = useState(settings.sidebarCollapsed);
-  const collapsedRef = useRef(collapsed);
-  collapsedRef.current = collapsed;
-  const toggleSidebar = useCallback(() => {
-    const next = !collapsedRef.current;
-    setCollapsed(next);
-    api.updateSettings({ sidebarCollapsed: next }).catch(() => undefined);
-  }, []);
 
   const updateSettings = useCallback(
     async (patch: Partial<Settings>) => {
@@ -313,7 +314,7 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
     [toast],
   );
 
-  const filter: Filter = view.kind === 'items' ? view.filter : { kind: 'all' };
+  const filter: Filter = view.kind === 'items' ? view.filter : ALL; // stable, so callbacks built on it stay stable
   // Searchable text per item, built once per list change instead of on every keystroke.
   const haystacks = useMemo(() => new Map((entries ?? []).map((e) => [e.id, `${e.title}\n${e.username}\n${e.url}\n${hostname(e.url)}`.toLowerCase()])), [entries]);
   const visible = useMemo(() => {
@@ -454,20 +455,21 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
 
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
+  // Registered once; the handler is read through a ref so it always sees the current state.
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  {
+    keyRef.current = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'k') {
         // Not over an open dialog: the palette would open behind it and take the typing.
         if (document.querySelector('.dialog-layer')) return;
         e.preventDefault();
         setPaletteOpen((o) => !o);
-        return;
-      }
-      // ⌘\ : fold or unfold the sidebar.
-      if (mod && e.key === '\\') {
-        e.preventDefault();
-        toggleSidebar();
         return;
       }
       // ⌘, : Settings, as in every Mac app.
@@ -499,22 +501,16 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
         (document.activeElement as HTMLElement | null)?.blur();
       }
     };
-    // The Mac app's Keys → Settings… menu item (⌘,) sends this.
-    const openSettings = () => selectView({ kind: 'settings' });
-    window.addEventListener('keys:open-settings', openSettings);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keys:open-settings', openSettings);
-      window.removeEventListener('keydown', onKey);
-  }, [create, onLock]);
+  }
 
   const defaultType: EntryType = filter.kind === 'type' ? filter.type : 'login';
   const showingDetail = view.kind === 'items' && selectedId !== null;
 
   return (
     <SettingsProvider value={{ settings, updateSettings }}>
-      <div className="shell" data-nav-open={navOpen || undefined} data-detail={showingDetail || undefined} data-sidebar={collapsed && !narrow ? 'collapsed' : undefined}>
-        <header className="topbar">
-          <IconButton label="Menu" onClick={() => setNavOpen(true)} aria-expanded={navOpen} aria-controls="main-nav">
+      <div className="shell" data-nav-open={navOpen || undefined} data-detail={showingDetail || undefined}>
+        <header className="topbar" inert={narrow && navOpen}>
+          <IconButton ref={menuButton} label="Menu" onClick={() => setNavOpen(true)} aria-expanded={navOpen} aria-controls="main-nav">
             <MenuIcon size={19} />
           </IconButton>
           <span className="brand">
@@ -544,11 +540,9 @@ export function VaultShell({ status, onLock }: { status: VaultStatus; onLock: ()
           auditCount={auditCount}
           trashCount={trashCount}
           sync={sync}
-          collapsed={collapsed && !narrow}
-          onToggle={toggleSidebar}
         />
 
-        <main className="workspace">
+        <main className="workspace" inert={narrow && navOpen}>
           <AnimatePresence mode="wait" initial={false}>
             {view.kind === 'items' ? (
               <motion.div key="items" className="items-view" {...fade}>

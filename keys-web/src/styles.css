@@ -44,7 +44,8 @@
   --good-text: #15803d;
   --good-soft: #f0fdf4;
   --good-line: #bbf7d0;
-  --focus: 0 0 0 0 transparent; /* no focus ring: fields show focus with their border instead */
+  --focus: 0 0 0 0 transparent; /* fields show focus with their border instead of a ring */
+  --focus-ring: 0 0 0 1.5px var(--text-3); /* keyboard focus: thin, but always visible */
   --overlay: rgba(10, 10, 10, 0.28);
   --shadow-xs: 0 1px 2px rgba(10, 10, 10, 0.05);
   --shadow-sm: 0 1px 3px rgba(10, 10, 10, 0.07), 0 1px 2px rgba(10, 10, 10, 0.04);
@@ -86,6 +87,8 @@
     --good-soft: #0e2216;
     --good-line: #1c4a2c;
     --focus: 0 0 0 0 transparent;
+  --focus-ring: 0 0 0 1.5px var(--text-3);
+    --focus-ring: 0 0 0 1.5px var(--text-3);
     --overlay: rgba(0, 0, 0, 0.6);
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
@@ -126,6 +129,7 @@
   --good-soft: #0e2216;
   --good-line: #1c4a2c;
   --focus: 0 0 0 0 transparent;
+  --focus-ring: 0 0 0 1.5px var(--text-3);
   --overlay: rgba(0, 0, 0, 0.6);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
@@ -379,7 +383,7 @@ a {
 }
 .btn:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .btn-sm {
   height: 32px;
@@ -464,7 +468,7 @@ a {
 }
 .icon-btn:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
   color: var(--text);
 }
 .icon-btn-outline {
@@ -712,7 +716,7 @@ select.input-sm.select,
 }
 .switch:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .switch-knob {
   position: absolute;
@@ -775,7 +779,7 @@ select.input-sm.select,
 }
 .segmented button:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .segmented-sm button {
   height: 28px;
@@ -1795,7 +1799,7 @@ svg.dial-layer {
 .nav-item:focus-visible {
   outline: none;
   /* Inside the row's own edge: list rows sit flush, so an outer ring gets clipped and looks heavy. */
-  box-shadow: none;
+  box-shadow: inset var(--focus-ring);
 }
 .nav-icon {
   display: inline-grid;
@@ -1849,7 +1853,7 @@ svg.dial-layer {
   display: grid;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: clip; /* hidden still lets focus scroll it sideways onto the off-canvas detail pane */
 }
 .workspace > * {
   grid-area: 1 / 1;
@@ -2606,6 +2610,27 @@ svg.dial-layer {
   background: var(--danger);
   color: #fff;
 }
+.toast:has(.toast-action) {
+  pointer-events: auto; /* the stack ignores the mouse; a toast with a button doesn't */
+}
+.toast-action {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: color-mix(in srgb, currentColor 24%, transparent);
+}
+.toast-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
 
 /* ================================================================= pages */
 
@@ -2780,7 +2805,7 @@ svg.dial-layer {
   outline: none;
 }
 .range:focus-visible::-webkit-slider-thumb {
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .gen-sets {
   display: grid;
@@ -2810,7 +2835,7 @@ svg.dial-layer {
 }
 .set-chip:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .set-check {
   display: grid;
@@ -3795,7 +3820,7 @@ svg.dial-layer {
   padding: 0 5px;
   border-radius: 6px;
   background: color-mix(in oklab, var(--tone) 15%, transparent);
-  color: color-mix(in oklab, var(--tone) 90%, var(--badge-ink));
+  color: color-mix(in oklab, var(--tone) 70%, #000); /* 4.5:1 for every tone on the light sidebar */
   font-family: inherit;
   font-size: 11px;
   font-weight: 500;
@@ -3947,7 +3972,7 @@ svg.dial-layer {
 }
 .icon-picker-btn:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .icon-picker-badge {
   position: absolute;
@@ -4139,7 +4164,7 @@ svg.dial-layer {
 }
 .search-clear:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 @keyframes clear-in {
   from {
@@ -5012,7 +5037,7 @@ svg.dial-layer {
 }
 .audit-issue:focus-visible {
   outline: none;
-  box-shadow: var(--focus);
+  box-shadow: var(--focus-ring);
 }
 .audit-issue:disabled {
   cursor: default;
@@ -5679,7 +5704,7 @@ svg.dial-layer {
 }
 .onboard-option:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--ring, rgba(10, 10, 10, 0.12));
+  box-shadow: var(--focus-ring);
 }
 .onboard-option[aria-checked='true'] {
   border-color: var(--text);
@@ -5769,7 +5794,7 @@ body[data-locking] .menu {
 /* Menu items show where keyboard focus is, not just a faint hover tint. */
 .menu [role^='menuitem']:focus-visible {
   outline: none;
-  box-shadow: none;
+  box-shadow: inset var(--focus-ring);
 }
 
 /* Reused passwords, grouped: each card is one password and every login that shares it. */
@@ -5815,7 +5840,7 @@ body[data-locking] .menu {
 
 .audit-row:focus-visible {
   outline: none;
-  box-shadow: none;
+  box-shadow: inset var(--focus-ring);
 }
 
 
@@ -5886,166 +5911,6 @@ button.sync-note {
   select,
   .input {
     font-size: max(16px, 1em);
-  }
-}
-
-/* Keys for Mac: a newer version is ready (sidebar, above Lock). */
-.update-card {
-  flex: 1 0 100%;
-  display: grid;
-  gap: 9px;
-  margin: 0 0 8px;
-  padding: 11px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  box-shadow: var(--shadow-xs);
-  animation: update-in 0.35s var(--ease) both;
-}
-.update-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.update-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--good) 14%, transparent);
-  color: var(--good-text);
-}
-.update-card.is-failed .update-icon {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger);
-}
-.update-text {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  line-height: 1.3;
-}
-.update-text strong {
-  overflow: hidden;
-  font-size: 12.5px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.update-text small {
-  overflow: hidden;
-  color: var(--text-3);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.update-text small b {
-  color: var(--good-text);
-  font-weight: 600;
-}
-.update-note {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.4;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.update-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.update-btn {
-  flex: 1;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--primary);
-  color: var(--on-primary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.update-btn:hover {
-  background: var(--primary-hover);
-}
-.update-link {
-  flex: none;
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 500;
-  text-decoration: none;
-}
-.update-link:hover {
-  color: var(--text);
-  text-decoration: underline;
-}
-.update-progress {
-  display: grid;
-  gap: 6px;
-}
-.update-progress small {
-  color: var(--text-3);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.35;
-}
-.update-bar {
-  height: 5px;
-  overflow: hidden;
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--good) 14%, var(--bg-subtle, transparent));
-}
-.update-bar > span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--good);
-  transition: width 0.6s var(--ease);
-}
-.update-bar.is-indeterminate > span {
-  animation: update-slide 1.2s ease-in-out infinite;
-}
-.update-spinner {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: update-spin 0.8s linear infinite;
-}
-@keyframes update-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-@keyframes update-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes update-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(340%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .update-card,
-  .update-bar.is-indeterminate > span {
-    animation: none;
   }
 }
 
@@ -6130,9 +5995,7 @@ button.sync-note {
   height: 31px;
 }
 
-/* ------------------------------------------------------- folding sidebar */
-/* One width animation on the grid; labels fade out at once when folding and back in once there's
-   room when unfolding. Icons keep their exact spot throughout, so nothing jumps. */
+/* ------------------------------------------------------- sidebar brand */
 .brand {
   min-height: 40px;
 }
@@ -6141,185 +6004,28 @@ button.sync-note {
   align-items: center;
   gap: 9px;
   min-width: 0;
-  max-width: 180px;
-  overflow: hidden;
-}
-.sidebar-toggle {
-  margin-left: auto;
-  flex: none;
-  color: var(--text-3);
-}
-.search-trigger {
-  overflow: hidden;
-}
-.lock-label {
-  display: inline-block;
-  max-width: 4em;
-  overflow: hidden;
-}
-
-@media (min-width: 861px) {
-  .shell {
-    transition: grid-template-columns 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-  .sidebar {
-    overflow: hidden;
-  }
-  .shell[data-sidebar='collapsed'] {
-    --sidebar-w: 60px;
-  }
-
-  /* Text that goes away: quick fade out, then back in with a short delay. */
-  .brand-mark,
-  .wordmark,
-  .nav-label,
-  .nav-count,
-  .search-label,
-  .search-trigger .kbd,
-  .lock-label {
-    transition:
-      opacity 0.16s ease 0.08s,
-      max-width 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-  .shell[data-sidebar='collapsed'] :is(.brand-mark, .wordmark, .nav-label, .nav-count, .search-label, .search-trigger .kbd, .lock-label) {
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      opacity 0.08s ease,
-      max-width 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-  .shell[data-sidebar='collapsed'] .brand-mark,
-  .shell[data-sidebar='collapsed'] .lock-label {
-    max-width: 0;
-  }
-
-  /* Icons centred in the 40px rail (60px less the sidebar's padding). */
-  .brand,
-  .nav-item,
-  .search-trigger,
-  .lock-btn {
-    transition-property: padding, gap, background-color, color, border-color;
-    transition-duration: 0.24s, 0.24s, 0.12s, 0.12s, 0.12s;
-    transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-  }
-  .shell[data-sidebar='collapsed'] .brand {
-    padding: 2px 4px;
-  }
-  .shell[data-sidebar='collapsed'] .nav-item {
-    padding-left: 11px;
-    padding-right: 11px;
-  }
-  .shell[data-sidebar='collapsed'] .search-trigger {
-    padding-left: 11.5px;
-  }
-  .shell[data-sidebar='collapsed'] .lock-btn {
-    gap: 0;
-    padding: 0;
-  }
-
-  /* Section names fold into thin dividers between the icon groups. */
-  .nav-heading {
-    height: 16px;
-    overflow: hidden;
-    white-space: nowrap;
-    transition:
-      height 0.24s cubic-bezier(0.32, 0.72, 0, 1),
-      margin 0.24s cubic-bezier(0.32, 0.72, 0, 1),
-      color 0.12s ease 0.08s,
-      background-color 0.12s;
-  }
-  .shell[data-sidebar='collapsed'] .nav-heading {
-    height: 1px;
-    margin: 12px 10px;
-    background: var(--border);
-    color: transparent;
-    transition:
-      height 0.24s cubic-bezier(0.32, 0.72, 0, 1),
-      margin 0.24s cubic-bezier(0.32, 0.72, 0, 1),
-      color 0.06s ease,
-      background-color 0.12s ease 0.1s;
-  }
-  .shell[data-sidebar='collapsed'] .nav-heading-row {
-    padding-right: 0;
-  }
-  .shell[data-sidebar='collapsed'] .nav-heading-row .nav-heading {
-    flex: 1;
-  }
-  .shell[data-sidebar='collapsed'] .nav-heading-row .tt-anchor,
-  .shell[data-sidebar='collapsed'] .nav-add,
-  .shell[data-sidebar='collapsed'] .sync-note {
-    display: none;
-  }
-}
-
-/* The folded sidebar's update button. */
-.update-rail {
-  display: grid;
-  place-items: center;
-  flex: 1 0 100%;
-  height: 36px;
-  margin-bottom: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--good) 12%, var(--bg));
-  color: var(--good-text);
-  cursor: pointer;
-}
-.update-rail:disabled {
-  cursor: default;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shell,
-  .shell * {
-    transition-duration: 0s !important;
-    transition-delay: 0s !important;
-  }
-}
-
-/* Tooltip wrappers mustn't change the sidebar's layout. */
-.sidebar > .tt-anchor {
-  display: flex;
-}
-.sidebar > .tt-anchor > .search-trigger {
-  flex: 1;
-  min-width: 0;
-}
-.brand > .tt-anchor {
-  margin-left: auto;
-  flex: none;
-}
-@media (min-width: 861px) {
-  .brand {
-    transition-property: padding, gap;
-  }
-  .shell[data-sidebar='collapsed'] .brand {
-    gap: 0;
-  }
-  .nav-scroll {
-    transition: margin 0.24s cubic-bezier(0.32, 0.72, 0, 1), padding 0.24s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-  /* Rail items stay inside the rail (no overhang under its edge). */
-  .shell[data-sidebar='collapsed'] .nav-scroll {
-    margin: 0;
-    padding-left: 0;
-    padding-right: 0;
-  }
-  .shell[data-sidebar='collapsed'] .nav-item {
-    padding-left: 11px;
-    padding-right: 11px;
-  }
 }
 /* Rows are as wide as the sidebar, never as wide as their longest label. */
 .nav-list {
   grid-template-columns: minmax(0, 1fr);
 }
-/* In the rail each row's tooltip wrapper fills the row, so the row stays rail-wide. */
-.nav-list .tt-anchor {
-  display: flex;
-  width: 100%;
-  min-width: 0;
+
+/* Touch screens: 44px targets for icon buttons, and no keyboard hints there's no keyboard for. */
+@media (pointer: coarse) {
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
-.nav-list .tt-anchor > .nav-item {
-  min-width: 0;
+@media (hover: none) {
+  .kbd {
+    display: none;
+  }
+}
+/* A spinner turning isn't motion that bothers anyone: keep it going with reduced motion, so progress still shows. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
+  }
 }

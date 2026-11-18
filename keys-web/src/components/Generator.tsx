@@ -41,7 +41,9 @@ function Value({ value, mode, separator }: { value: string; mode: GeneratorMode;
   const groups = mode === 'passphrase' && separator ? value.split(separator).flatMap((w, i) => (i ? [separator, w] : [w])) : [value];
   let index = 0;
   return (
-    <span className={`secret gen-value gen-value-${mode}`} aria-label={value}>
+    <span className={`secret gen-value gen-value-${mode}`}>
+      {/* The coloured characters are hidden from screen readers; this reads the value as one string. */}
+      <span className="visually-hidden">{value}</span>
       {groups.map((group, g) => (
         <span key={g} className="gen-group">
           {[...group].map((ch) => {
@@ -147,7 +149,7 @@ export function Generator({ compact, onUse, onCopied }: { compact?: boolean; onU
       <Segmented label="What to generate" block value={opts.mode} onChange={(m) => set('mode', m)} options={MODES} />
 
       <div className="gen-display">
-        <output aria-live="polite" className="gen-output">
+        <output className="gen-output">
           <Value value={value} mode={opts.mode} separator={opts.separator} />
         </output>
         <div className="gen-actions">
@@ -283,7 +285,7 @@ interface Copied {
 export function GeneratorView() {
   const [recent, setRecent] = useState<Copied[]>([]);
   const copy = useCopy();
-  const [shown, setShown] = useState<number | null>(null);
+  const [shown, setShown] = useState<number | null>(null); // the revealed row, by when it was copied (rows shift as new ones arrive)
 
   return (
     <div className="page page-wide">
@@ -302,10 +304,10 @@ export function GeneratorView() {
               <p className="gen-side-empty">Anything you copy shows up here until you leave this page. It’s never saved.</p>
             ) : (
               <ul className="gen-recent">
-                {recent.map((r, i) => (
+                {recent.map((r) => (
                   <li key={r.at}>
-                    <button type="button" className="gen-recent-value" onClick={() => setShown(shown === i ? null : i)} aria-label={shown === i ? 'Hide value' : 'Show value'}>
-                      {shown === i ? <span className="secret">{r.value}</span> : <span className="masked">••••••••••</span>}
+                    <button type="button" className="gen-recent-value" onClick={() => setShown(shown === r.at ? null : r.at)} aria-label={shown === r.at ? 'Hide value' : 'Show value'}>
+                      {shown === r.at ? <span className="secret">{r.value}</span> : <span className="masked">••••••••••</span>}
                     </button>
                     <span className="gen-recent-kind">{r.kind}</span>
                     <CopyButton label={`Copy ${r.kind}`} onCopy={() => copy(r.value, r.kind)} />

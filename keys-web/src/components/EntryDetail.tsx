@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowLeft, Check, ChevronDown, Copy, ExternalLink, Eye, EyeOff, KeyRound, Pencil, Star, Trash2, TriangleAlert } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
-import { useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
+import { undoDelete, useConfirm, useCopy, useSettings, useToast } from '../context.tsx';
 import { collapse, quick } from '../motion.ts';
 import type { Category, Entry, StrengthResult } from '../../shared/types.ts';
 import { FIELD_LABELS, formatDate, hostname, safeHref, timeAgo, TYPE_LABELS } from '../util.ts';
@@ -177,7 +177,7 @@ export function EntryDetail({
     if (!entry) return;
     try {
       await api.deleteEntry(entry.id);
-      toast(`Moved ${entry.title} to Recently deleted`);
+      toast(`Moved ${entry.title} to Recently deleted`, 'info', undoDelete([entry.id], toast));
       onDeleted(entry.id);
     } catch (err) {
       toast(errorMessage(err), 'error');
@@ -213,7 +213,8 @@ export function EntryDetail({
   );
 
   return (
-    <section className="detail" aria-labelledby="detail-title">
+    // While the next item loads, this one stays visible but can't be acted on (Delete would hit the wrong item).
+    <section className="detail" aria-labelledby="detail-title" aria-busy={entry.id !== entryId} inert={entry.id !== entryId}>
       <div className="detail-toolbar">
         <IconButton label="Back to list" className="only-narrow" onClick={onBack}>
           <ArrowLeft size={18} />

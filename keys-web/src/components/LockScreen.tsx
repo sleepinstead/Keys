@@ -30,7 +30,7 @@ export function captureBackdrop() {
   const copy = live.cloneNode(true) as HTMLElement;
   // The app's own labels ("All items", "Settings") stay readable under the dark overlay; anything that
   // came from the vault (titles, usernames, counts, category names, the open item) is removed outright.
-  const DATA = '.workspace, .nav-categories, .nav-count, .lock-btn, .topbar, .sync-note, .update-card';
+  const DATA = '.workspace, .nav-categories, .nav-count, .lock-btn, .topbar, .sync-note';
   // Overlays (the ⌘K palette, dialogs, menus, toasts) hold vault data and aren't needed behind the card.
   copy.querySelectorAll('.palette-layer, .dialog-layer, .menu, .toast, .toasts').forEach((el) => el.remove());
   for (const region of copy.querySelectorAll(DATA)) {
@@ -154,7 +154,10 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
 
   useEffect(() => {
     if (!lockoutUntil) return;
-    const t = window.setInterval(() => setNow(Date.now()), 250);
+    const t = window.setInterval(() => {
+      setNow(Date.now());
+      if (Date.now() >= lockoutUntil) window.clearInterval(t); // over: stop ticking
+    }, 250);
     return () => window.clearInterval(t);
   }, [lockoutUntil]);
   const waitSeconds = lockoutUntil ? Math.max(0, Math.ceil((lockoutUntil - now) / 1000)) : 0;
@@ -431,7 +434,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
           );
 
   const statusBlock = (
-          <div id="lock-status" className="lock-status" aria-live="assertive">
+          <div id="lock-status" className="lock-status" aria-live="polite">
             <AnimatePresence mode="wait" initial={false}>
               {verified ? (
                 <motion.p key="ok" className="form-success" {...fade}>
@@ -444,7 +447,9 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
                 </motion.p>
               ) : waitSeconds > 0 ? (
                 <motion.p key="wait" className="form-error" {...fade}>
-                  Too many attempts. Try again in {waitSeconds}s.
+                  {/* Read once, not every second as the number ticks down. */}
+                  <span className="visually-hidden">Too many attempts. Wait a moment, then try again.</span>
+                  <span aria-hidden="true">Too many attempts. Try again in {waitSeconds}s.</span>
                 </motion.p>
               ) : capsLock && isText ? (
                 <motion.p key="caps" className="form-hint" {...fade}>
@@ -646,7 +651,8 @@ function Onboarding({
       </div>
 
       <section className="onboard-main">
-        <AnimatePresence mode="wait" initial={false}>
+        {/* autoFocus doesn't survive the step swap: focus the new step's field once it's in. */}
+        <AnimatePresence mode="wait" initial={false} onExitComplete={() => document.querySelector<HTMLElement>('.onboard-panel #master, .onboard-panel #setup-pin')?.focus()}>
           <motion.div
             key={step}
             ref={cardRef as React.Ref<HTMLDivElement>}
@@ -687,7 +693,7 @@ function Onboarding({
                     <span className="tile-icon"><CloudOff size={17} /></span>
                     <span>
                       <strong>No account, no cloud</strong>
-                      <span>Nothing leaves this computer.</span>
+                      <span>Your vault never leaves this computer. Website icons are downloaded from each site (you can turn that off in Settings).</span>
                     </span>
                   </li>
                 </ul>

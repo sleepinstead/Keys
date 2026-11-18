@@ -308,7 +308,8 @@ function EditorForm({
         url: keep(t !== 'note', form.url),
         notes: keep(t === 'note' || Boolean(entry?.notes), form.notes),
         codes: keep(t === 'recovery', form.codes.split('\n').map((c) => c.trim()).filter(Boolean).join('\n')),
-        customFields: form.customFields.filter((f) => f.label.trim() || f.value),
+        // Secure notes have no extra fields: a new note doesn't keep ones hidden by switching its kind.
+        customFields: drop && t === 'note' ? [] : form.customFields.filter((f) => f.label.trim() || f.value),
       };
       onSaved(entry ? await api.updateEntry(entry.id, cleaned, entry.updatedAt) : await api.createEntry(cleaned));
     } catch (err) {

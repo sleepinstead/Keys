@@ -142,7 +142,6 @@ export interface Settings {
   /** Whether categories are enabled in the vault. */
   categoriesEnabled: boolean;
   /** The sidebar is folded down to a rail of icons. */
-  sidebarCollapsed: boolean;
 }
 
 export type Appearance = 'system' | 'light' | 'dark';
@@ -157,7 +156,6 @@ export const DEFAULT_SETTINGS: Settings = {
   appearance: 'system',
   hideIcons: { login: false, note: true, apiKey: true, recovery: true },
   categoriesEnabled: true,
-  sidebarCollapsed: false,
 };
 
 /** Where the SQLite database lives. Not secret: the lock screen shows it. */
@@ -169,7 +167,7 @@ export interface StorageInfo {
   available: boolean;
   error: string | null;
   size: number | null;
-  /** The server can open a native file dialog (macOS). */
+  /** The server can open a native file dialog (macOS and Windows). */
   canBrowse: boolean;
 }
 
@@ -194,20 +192,6 @@ export interface SyncStatus {
   revision: string;
   devices: OtherDevice[];
   conflicts: SyncConflict[];
-  /** A newer Keys for Mac, ready to install (only the Mac app reports this). */
-  update?: AppUpdate | null;
-}
-
-export interface AppUpdate {
-  version: string;
-  notes: string;
-  state: 'available' | 'installing' | 'failed';
-  /** The version running now. */
-  current?: string;
-  /** Download progress while installing, 0–100 (null until the size is known). */
-  progress?: number | null;
-  /** The release page with the full notes. */
-  releaseUrl?: string;
 }
 
 export interface VaultStatus {

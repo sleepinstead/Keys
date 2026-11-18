@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { ButtonHTMLAttributes, CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Check, Copy, Folder, Monitor, Moon, Sun, X } from 'lucide-react';
@@ -147,7 +147,7 @@ export function IconButton({
   className = '',
   variant = 'ghost',
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string; tooltipSide?: 'top' | 'bottom' | 'right'; variant?: 'ghost' | 'outline' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement>; label: string; shortcut?: string; tooltipSide?: 'top' | 'bottom' | 'right'; variant?: 'ghost' | 'outline' }) {
   return (
     <Tooltip content={label} shortcut={shortcut} side={tooltipSide}>
       <button type="button" className={`icon-btn icon-btn-${variant} ${className}`.trim()} aria-label={label} {...rest}>
@@ -433,8 +433,8 @@ function moveFocus(e: KeyboardEvent, list: HTMLElement | null) {
 function MenuButtons({ items, close }: { items: MenuItem[]; close: () => void }) {
   return (
     <>
-      {items.map((item) => (
-        <div key={item.label}>
+      {items.map((item, i) => (
+        <div key={`${i}-${item.label}`}>
           {item.separatorBefore && <div className="menu-sep" role="separator" />}
           <button
             type="button"

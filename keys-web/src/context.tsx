@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { LOCK_EVENT } from './api.ts';
+import { api, LOCK_EVENT, REFRESH_EVENT } from './api.ts';
 import type { ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CircleAlert, CircleCheck, Trash2 } from 'lucide-react';
@@ -11,23 +11,44 @@ import { Button, Dialog } from './components/ui.tsx';
 
 // ------------------------------------------------------------------ toasts
 
+interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 interface Toast {
   id: number;
   text: string;
   tone: 'info' | 'error';
+  action?: ToastAction;
 }
 
-const ToastCtx = createContext<(text: string, tone?: Toast['tone']) => void>(() => {});
+type Push = (text: string, tone?: Toast['tone'], action?: ToastAction) => void;
+const ToastCtx = createContext<Push>(() => {});
+
+/** "Undo" for a move to Recently deleted: puts the items back and refreshes the lists. */
+export function undoDelete(ids: string[], toast: Push): ToastAction {
+  return {
+    label: 'Undo',
+    run: () =>
+      void api.restoreTrash(ids).then(
+        () => window.dispatchEvent(new Event(REFRESH_EVENT)),
+        () => toast('Couldn’t undo. Restore it from Recently deleted.', 'error'),
+      ),
+  };
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
-  const push = useCallback((text: string, tone: Toast['tone'] = 'info') => {
+  const push = useCallback<Push>((text, tone = 'info', action) => {
     if (!text) return;
     const id = nextId.current++;
-    setToasts((t) => [...t.slice(-2), { id, text, tone }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === 'error' ? 6000 : 3000);
+    setToasts((t) => [...t.slice(-2), { id, text, tone, action }]);
+    // Long enough to read and, with an action, to reach it.
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 8000 : tone === 'error' ? 6000 : 3000);
   }, []);
+  const dismiss = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
   // Toasts can name items ("Moved GitHub to Recently deleted"): gone the moment Keys locks.
   useEffect(() => {
     const clear = () => setToasts([]);
@@ -37,11 +58,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      {/* Errors are announced right away (role=alert); confirmations politely. */}
+      {/* Errors are announced right away (role=alert); confirmations politely. Once each. */}
       <div className="visually-hidden" role="alert">
         {toasts.filter((t) => t.tone === 'error').at(-1)?.text}
       </div>
-      <div className="toasts" role="status" aria-live="polite">
+      <div className="visually-hidden" role="status">
+        {toasts.filter((t) => t.tone === 'info').at(-1)?.text}
+      </div>
+      <div className="toasts">
         <AnimatePresence initial={false}>
           {toasts.map((t) => (
             <motion.div
@@ -55,6 +79,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             >
               {t.tone === 'error' ? <CircleAlert size={16} /> : <CircleCheck size={16} />}
               <span>{t.text}</span>
+              {t.action && (
+                <button
+                  type="button"
+                  className="toast-action"
+                  onClick={() => {
+                    dismiss(t.id);
+                    t.action!.run();
+                  }}
+                >
+                  {t.action.label}
+                </button>
+              )}
             </motion.div>
           ))}
         </AnimatePresence>

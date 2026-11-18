@@ -267,13 +267,13 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
   // ------------------------------------------------------------- sharing
   // One file used from several computers through a synced folder.
 
-  /** Polled by the app: has the data changed on another device, who else has it open, any conflict copies. */
   // The version Settings shows (the web version has no built-in updates: pull and rebuild).
   api.get('/app', (req, res) => {
     keyFor(req, false);
-    res.json({ native: false, version: APP_VERSION });
+    res.json({ version: APP_VERSION });
   });
 
+  /** Polled by the app: has the data changed on another device, who else has it open, any conflict copies. */
   api.get('/sync', (req, res) => {
     keyFor(req, false); // looking doesn't count as activity, so it never keeps Keys unlocked
     storage.checkForChanges();

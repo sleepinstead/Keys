@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import { animate, AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { AtSign, Check, ChevronRight, RotateCcw, Clock3, Copy as CopyIcon, ExternalLink, KeyRound, Layers, PanelRightOpen, Radar, RefreshCw, ShieldAlert, ShieldX, Trash2, Zap } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
-import { useCopy, useSettings, useToast } from '../context.tsx';
+import { undoDelete, useCopy, useSettings, useToast } from '../context.tsx';
 import { fade } from '../motion.ts';
 import type { AuditIssue, AuditItem, AuditReport, DuplicateGroup } from '../../shared/types.ts';
 import { plural, safeHref, timeAgo } from '../util.ts';
@@ -331,7 +331,7 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
       onSelect: async () => {
         try {
           await api.deleteEntry(item.id);
-          toast(`Moved ${item.title} to Recently deleted`);
+          toast(`Moved ${item.title} to Recently deleted`, 'info', undoDelete([item.id], toast));
           onEntriesChanged();
           await load();
         } catch (err) {
@@ -342,12 +342,16 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
     return items;
   };
 
+  // Only the newest request's report is shown: a re-check and a breach check can finish in any order.
+  const seq = useRef(0);
   const load = async (manual = false) => {
+    const mine = ++seq.current;
     setLoading(true);
     setError(null);
     try {
       // A manual re-check spins for at least a moment, so it's clear something happened.
       const [r] = await Promise.all([api.audit(), manual ? new Promise((ok) => setTimeout(ok, 450)) : null]);
+      if (mine !== seq.current) return;
       setReport(r);
       onReport(r);
       setRun((n) => n + 1);
@@ -371,7 +375,9 @@ export function AuditView({ onOpen, onReport, onEntriesChanged }: { onOpen: (id:
     setError(null);
     try {
       if (!settings.breachCheckEnabled) await updateSettings({ breachCheckEnabled: true });
+      const mine = ++seq.current;
       const next = await api.checkBreaches();
+      if (mine !== seq.current) return;
       setReport(next);
       onReport(next);
       toast(next.totals.breached ? `${plural(next.totals.breached, 'password')} found in known breaches` : 'None of your passwords are in known breaches');

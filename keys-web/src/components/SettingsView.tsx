@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, FormEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Archive, ArrowDownToLine, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, MonitorSmartphone, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, MonitorSmartphone, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
 import { collapse, fade } from '../motion.ts';
@@ -154,7 +154,6 @@ export function SettingsView({
       </Section>
       {vaultStatus && <StorageSection storage={vaultStatus.storage} credential={vaultStatus.credential} onMoved={refreshStatus} />}
       {vaultStatus && !vaultStatus.storage.isDefault && <SharingSection sync={sync} onMerged={onMerged} />}
-      <UpdatesSection />
 
       <Section title="Icons" icon={<Shapes size={17} />} size="narrow" lede="Kinds that are off show as plain text rows. Logins also fetch website icons.">
         <div className="icon-chips" role="group" aria-label="Show icons for">
@@ -271,93 +270,6 @@ function formatSize(bytes: number | null): string {
 }
 
 /** The same file on other computers: who else has it open, and conflict copies to merge. */
-/** The desktop app only: its version, a manual update check, and automatic checks. */
-function UpdatesSection() {
-  const toast = useToast();
-  const [info, setInfo] = useState<{ native: boolean; version?: string; autoUpdate?: boolean } | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<{ state: string; version?: string } | null>(null);
-  useEffect(() => {
-    let live = true;
-    api.appInfo().then(
-      (i) => live && setInfo(i),
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
-  if (!info?.native) return null;
-
-  async function check() {
-    setChecking(true);
-    setResult(null);
-    try {
-      setResult(await api.checkForUpdates());
-    } catch (err) {
-      setResult({ state: 'failed' });
-      toast(errorMessage(err), 'error');
-    } finally {
-      setChecking(false);
-    }
-  }
-  async function install() {
-    try {
-      await api.installUpdate();
-      setResult({ state: 'installing' });
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    }
-  }
-  async function setAuto(on: boolean) {
-    try {
-      const { autoUpdate } = await api.setAutoUpdate(on);
-      setInfo((i) => (i ? { ...i, autoUpdate } : i));
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    }
-  }
-
-  const status =
-    checking ? 'Checking…'
-    : result?.state === 'current' ? 'You’re up to date.'
-    : result?.state === 'available' ? `Keys ${result.version} is available.`
-    : result?.state === 'installing' ? 'Updating… Keys restarts when it’s done.'
-    : result?.state === 'failed' ? 'Couldn’t reach GitHub. Check your connection and try again.'
-    : 'Looks for a newer version of Keys. Nothing about you or your vault is sent.';
-
-  return (
-    <Section title="Updates" icon={<ArrowDownToLine size={17} />} size="narrow" lede={`Keys ${info.version}`}>
-      <div className="group">
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Check for updates</div>
-            <div className={`setting-desc${result?.state === 'failed' ? ' text-danger' : ''}`} role="status" aria-live="polite">
-              {status}
-            </div>
-          </div>
-          {result?.state === 'available' ? (
-            <Button size="sm" onClick={() => void install()}>
-              Update
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" loading={checking} disabled={result?.state === 'installing'} onClick={() => void check()}>
-              Check now
-            </Button>
-          )}
-        </div>
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Check automatically</div>
-            <div className="setting-desc">A few times a day. A new version shows in the sidebar, above Lock.</div>
-          </div>
-          <Switch checked={Boolean(info.autoUpdate)} onChange={(v) => void setAuto(v)} label="Check for updates automatically" />
-        </div>
-      </div>
-    </Section>
-  );
-}
-
 function SharingSection({ sync, onMerged }: { sync: SyncStatus | null; onMerged: () => Promise<void> }) {
   const confirm = useConfirm();
   const toast = useToast();
@@ -1212,7 +1124,7 @@ function BrowserSection({ initial, connect, onConnectDone }: { initial: BrowserP
           <div className="dialog-body stack">
             <ol className="connect-steps">
               <li>
-                In the browser, open <code>chrome://extensions</code>, turn on Developer mode and choose <strong>Load unpacked</strong>. Pick the <code>extension</code> folder inside Keys.
+                In the browser, open <code>chrome://extensions</code>, turn on Developer mode and choose <strong>Load unpacked</strong>. Pick the <code>keys-extension</code> folder inside Keys.
               </li>
               <li>Open the Keys extension and choose <strong>Connect to Keys</strong>.</li>
               <li>Type the code it shows here.</li>

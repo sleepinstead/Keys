@@ -20,6 +20,8 @@ import type {
 } from '../shared/types.ts';
 
 export const LOCK_EVENT = 'keys:locked';
+/** Ask the vault view to reload its lists (after an undo, say). */
+export const REFRESH_EVENT = 'keys:refresh';
 
 // Per tab and per port, unlike a cookie, and useless once the vault locks.
 const TOKEN = 'keys-session';
@@ -103,16 +105,7 @@ export const api = {
   retryStorage: () => request<VaultStatus>('POST', '/storage/retry'),
   sync: () => request<SyncStatus>('GET', '/sync'),
   mergeConflict: (path: string) => request<{ merged: number; skipped: number }>('POST', '/sync/merge', { path }),
-  /** Copies a secret natively (kept out of Windows clipboard history) and clears it after `seconds`. */
-  copySecret: (text: string, seconds: number) => request<{ native: boolean }>('POST', '/clipboard/copy', { text, seconds }),
-  /** The Mac app clears the clipboard after `seconds` if it still holds the secret with this SHA-256. */
-  clearClipboard: (hash: string, seconds: number) => request<{ native: boolean }>('POST', '/clipboard/clear', { hash, seconds }),
-  installUpdate: () => request<{ ok: true }>('POST', '/update/install'),
-  /** The Mac app's version and update settings ({ native: false } in the browser). */
-  appInfo: () => request<{ native: boolean; version?: string; autoUpdate?: boolean }>('GET', '/app'),
-  /** Asks the Mac app to check now; answers in the page (no dialog). */
-  checkForUpdates: () => request<{ state: 'current' | 'available' | 'failed' | 'installing' | 'off'; version?: string }>('POST', '/update/check'),
-  setAutoUpdate: (on: boolean) => request<{ autoUpdate: boolean }>('PUT', '/update/auto', { on }),
+  appInfo: () => request<{ version?: string }>('GET', '/app'),
   browseStorage: (mode: 'open' | 'save') => request<{ path: string | null }>('POST', '/storage/browse', { mode }),
   storageTemplate: () => request<{ filename: string; data: string }>('GET', '/storage/template'),
   setup: (password: string, type: CredentialType = 'password') => request<VaultStatus>('POST', '/setup', { password, type }),

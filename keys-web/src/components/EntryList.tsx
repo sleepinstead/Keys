@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, u
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { ArrowDownAZ, AtSign, Check, Folder, ListChecks, ChevronDown, Clock3, ExternalLink, KeyRound, Pencil, Plus, Search, Star, StarOff, Trash2, Upload, X } from 'lucide-react';
 import { api, errorMessage } from '../api.ts';
-import { useCopy, useSettings, useToast } from '../context.tsx';
+import { undoDelete, useCopy, useSettings, useToast } from '../context.tsx';
 import type { Category, Entry, EntrySummary, EntryType } from '../../shared/types.ts';
 import { hostname, plural, safeHref, TYPE_LABELS } from '../util.ts';
 import { TYPE_ICONS } from './Sidebar.tsx';
@@ -104,7 +104,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
     try {
       const message = await run();
       await onBulkDone(deleted);
-      toast(message);
+      toast(message, 'info', deleted.length ? undoDelete(deleted, toast) : undefined);
       stopSelecting();
     } catch (err) {
       toast(errorMessage(err), 'error');
@@ -169,7 +169,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
         onSelect: async () => {
           try {
             await api.deleteEntry(e.id);
-            toast(`Moved ${e.title} to Recently deleted`);
+            toast(`Moved ${e.title} to Recently deleted`, 'info', undoDelete([e.id], toast));
             onDeleted(e.id);
           } catch (err) {
             toast(errorMessage(err), 'error');
