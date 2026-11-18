@@ -374,8 +374,6 @@ a {
   transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), box-shadow 0.15s var(--ease);
   -webkit-tap-highlight-color: transparent;
 }
-.btn:active:not(:disabled) {
-}
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -570,7 +568,7 @@ textarea.input {
   background-repeat: no-repeat;
   background-position: right 11px center;
   cursor: pointer;
-  height: 36px;
+  height: 38px; /* the same as text fields */
   padding-left: 11px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -1157,7 +1155,7 @@ select.input-sm.select,
     border-color 0.18s var(--ease),
     box-shadow 0.18s var(--ease),
     background-color 0.18s var(--ease),
-    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform 0.22s var(--ease);
   animation: otp-in 0.4s var(--ease) backwards;
   animation-delay: calc(var(--i) * 28ms);
 }
@@ -1697,7 +1695,7 @@ svg.dial-layer {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  padding: 14px 10px 10px;
+  padding: 20px 10px 10px; /* Search sits on the same centre line as the list and item headers */
   border-right: 1px solid var(--border);
   background: var(--bg-subtle);
 }
@@ -1887,7 +1885,8 @@ svg.dial-layer {
 .list-head {
   display: grid;
   gap: 12px;
-  padding: 16px 14px 12px 16px;
+  /* Top padding puts the title row on the same centre line as the sidebar's Search and the item toolbar. */
+  padding: 12px 14px 12px 16px;
   /* A clean edge for the list to scroll under, instead of a loose gap above half-cut rows. */
   border-bottom: 1px solid var(--border);
 }
@@ -3270,11 +3269,15 @@ svg.dial-layer {
     inset: 0 auto 0 0;
     z-index: 50;
     width: min(290px, 86vw);
-    box-shadow: var(--shadow-lg);
+    /* Closed, it casts no shadow: parked just off-screen, a shadow would show as a grey strip on the page's edge. */
+    box-shadow: none;
     transform: translateX(-104%);
-    transition: transform 0.3s var(--ease);
+    transition:
+      transform 0.3s var(--ease),
+      box-shadow 0.3s var(--ease);
   }
   .shell[data-nav-open] .sidebar {
+    box-shadow: var(--shadow-lg);
     transform: none;
   }
   .scrim {
@@ -3614,7 +3617,7 @@ svg.dial-layer {
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--r-2xl); /* every card: 16px */
   background: var(--bg);
 }
 .bento-wide {
@@ -3882,8 +3885,9 @@ svg.dial-layer {
 .btn,
 .icon-btn {
   transition-property: background-color, border-color, color, box-shadow, transform;
-  transition-duration: 0.15s, 0.15s, 0.15s, 0.15s, 0.4s;
-  transition-timing-function: var(--ease), var(--ease), var(--ease), var(--ease), cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition-duration: 0.15s, 0.15s, 0.15s, 0.15s, 0.22s;
+  /* Pressed instantly, released with a critically damped settle: no overshoot, since a press carries no momentum. */
+  transition-timing-function: var(--ease), var(--ease), var(--ease), var(--ease), var(--ease);
 }
 .btn:active:not(:disabled) {
   transform: scale(0.97);
@@ -3891,7 +3895,7 @@ svg.dial-layer {
   transition-timing-function: var(--ease), var(--ease), var(--ease), var(--ease), ease-out;
 }
 .icon-btn:active:not(:disabled) {
-  transform: scale(0.9);
+  transform: scale(0.94); /* the same dip as other small pressables */
   transition-duration: 0.15s, 0.15s, 0.15s, 0.15s, 0.08s;
   transition-timing-function: var(--ease), var(--ease), var(--ease), var(--ease), ease-out;
 }
@@ -3907,14 +3911,14 @@ svg.dial-layer {
 }
 .btn-done .btn-icon-swap {
   color: var(--good);
-  animation: icon-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: icon-pop 0.26s var(--ease);
 }
 .btn-done > span:last-child {
   animation: label-in 0.25s var(--ease);
 }
 @keyframes icon-pop {
   0% {
-    transform: scale(0.3) rotate(-25deg);
+    transform: scale(0.6);
     opacity: 0;
   }
   100% {
@@ -3971,7 +3975,7 @@ svg.dial-layer {
   border-radius: 14px;
   background: none;
   cursor: pointer;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.22s var(--ease);
 }
 .icon-picker-btn:hover .mono {
   border-color: var(--border-strong);
@@ -4196,7 +4200,7 @@ svg.dial-layer {
   background: var(--tile);
   color: #fff;
   cursor: pointer;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s var(--ease);
+  transition: transform 0.22s var(--ease), background-color 0.2s var(--ease);
 }
 .icon-cell:hover {
   transform: scale(1.08);
@@ -4440,7 +4444,7 @@ svg.dial-layer {
   border-radius: 999px;
   background: var(--swatch);
   cursor: pointer;
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s var(--ease);
+  transition: transform 0.22s var(--ease), box-shadow 0.15s var(--ease);
 }
 .color-menu-swatch:hover {
   transform: scale(1.15);
@@ -4560,7 +4564,7 @@ svg.dial-layer {
   overflow-y: auto;
   list-style: none;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px; /* matches the context menu */
   background: var(--bg);
   box-shadow: var(--shadow-lg);
   outline: none;
@@ -4571,7 +4575,7 @@ svg.dial-layer {
   gap: 8px;
   height: 32px;
   padding: 0 12px 0 8px;
-  border-radius: 8px;
+  border-radius: 9px; /* 14px menu less its 5px padding */
   font-size: 13.5px;
   white-space: nowrap;
   cursor: pointer;
@@ -4886,7 +4890,7 @@ svg.dial-layer {
   border-radius: 999px;
   background: var(--swatch);
   cursor: pointer;
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s var(--ease);
+  transition: transform 0.22s var(--ease), box-shadow 0.15s var(--ease);
 }
 .menu .menu-swatch:hover {
   transform: scale(1.15);
@@ -6053,4 +6057,11 @@ button.sync-note {
 .cred-dialog > .field,
 .cred-dialog > .stack > .field {
   min-height: 72px;
+}
+
+/* Settings rows: dropdowns match the small buttons beside them (32px, 8px corners). */
+.setting-row .select-trigger {
+  height: 32px;
+  border-radius: var(--r-md);
+  font-size: 13px;
 }
