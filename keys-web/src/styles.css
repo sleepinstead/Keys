@@ -6027,25 +6027,23 @@ button.sync-note {
   }
 }
 
-/* PIN vaults: a quiet note under the PIN length, not an alarm box. */
-.pin-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 0 4px;
-  color: var(--text-3);
-  font-size: 13px;
-  line-height: 1.45;
-}
-.pin-warning svg {
-  flex: none;
-  margin-top: 2.5px;
-}
 
 /* Export: which kinds of item to include. */
 .export-types {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.cred-length {
+  display: flex;
+  justify-content: center;
+}
+.cred-length[data-off] {
+  visibility: hidden;
+}
+/* Text fields and PIN boxes take the same room, so the dialog keeps its height when switching. */
+.cred-dialog > .field,
+.cred-dialog > .stack > .field {
+  min-height: 72px;
 }

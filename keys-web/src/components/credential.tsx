@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Asterisk, Hash, Info } from 'lucide-react';
+import { Asterisk, Hash } from 'lucide-react';
 import type { Credential, CredentialType } from '../../shared/types.ts';
 import { Segmented } from './ui.tsx';
 
@@ -35,16 +35,6 @@ function describe(choice: CredentialChoice): { text: string; strength: string; t
   }
 }
 
-/** A quiet note wherever someone chooses a PIN-only vault: a copied file can be tried PIN by PIN offline. */
-export function PinVaultWarning({ length }: { length: 4 | 6 }) {
-  return (
-    <p className="pin-warning" role="note">
-      <Info size={14} aria-hidden="true" />
-      <span>Anyone with a copy of your file could guess a {length}-digit PIN within {length === 4 ? 'hours' : 'days'}. A password is safer.</span>
-    </p>
-  );
-}
-
 /** Choose how the vault unlocks: a master password, or a 4- or 6-digit PIN. */
 export function CredentialPicker({ value, onChange }: { value: CredentialChoice; onChange: (c: CredentialChoice) => void }) {
   const d = describe(value);
@@ -57,7 +47,8 @@ export function CredentialPicker({ value, onChange }: { value: CredentialChoice;
         onChange={(type) => onChange({ ...value, type })}
         options={KINDS.map((k) => ({ value: k.value, label: <>{k.icon}{k.label}</> }))}
       />
-      {value.type === 'pin' && (
+      {/* Always laid out (hidden for a password), so switching kinds never changes the height. */}
+      <div className="cred-length" data-off={value.type !== 'pin' || undefined} inert={value.type !== 'pin'}>
         <Segmented
           label="PIN length"
           size="sm"
@@ -68,14 +59,13 @@ export function CredentialPicker({ value, onChange }: { value: CredentialChoice;
             { value: '4', label: '4 digits' },
           ]}
         />
-      )}
+      </div>
       <p className="cred-desc">
         <span className="badge" data-tone={d.tone}>
           {d.strength}
         </span>
         {d.text}
       </p>
-      {value.type === 'pin' && <PinVaultWarning length={value.pinLength} />}
     </div>
   );
 }
