@@ -5,7 +5,7 @@ import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSp
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
 import { useConfirm, useSettings, useToast } from '../context.tsx';
 import { collapse, fade } from '../motion.ts';
-import { isShortCredential } from '../../shared/types.ts';
+import { ENTRY_TYPES, isShortCredential } from '../../shared/types.ts';
 import type { BrowserPairing, Category, SyncConflict, SyncStatus, CategoryColor, Credential, EntryType, ExportFormat, PinStatus, StorageInfo, VaultStatus } from '../../shared/types.ts';
 import { isWeakPin } from '../../shared/generator.ts';
 import { CREDENTIAL_NAMES, choiceFromCredential, CredentialPicker } from './credential.tsx';
@@ -1215,6 +1215,8 @@ function BackupSection({ credential, onImported }: { credential: Credential; onI
 
 function ExportForm({ credential, onDone }: { credential: Credential; onDone: () => void }) {
   const [format, setFormat] = useState<ExportFormat>('encrypted');
+  const [types, setTypes] = useState<EntryType[]>([...ENTRY_TYPES]);
+  const toggleType = (t: EntryType) => setTypes((now) => (now.includes(t) ? now.filter((x) => x !== t) : ENTRY_TYPES.filter((x) => x === t || now.includes(x))));
   const [master, setMaster] = useState('');
   const [exportPassword, setExportPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -1238,7 +1240,7 @@ function ExportForm({ credential, onDone }: { credential: Credential; onDone: ()
     }
     setBusy(true);
     try {
-      const file = await api.exportVault(format, master, format === 'encrypted' ? exportPassword || undefined : undefined);
+      const file = await api.exportVault(format, master, format === 'encrypted' ? exportPassword || undefined : undefined, types.length < ENTRY_TYPES.length ? types : undefined);
       downloadFile(file.filename, file.mime, file.content);
       toast(`Exported ${file.filename}`);
       onDone();
@@ -1260,6 +1262,24 @@ function ExportForm({ credential, onDone }: { credential: Credential; onDone: ()
               <span className="format-desc">{f.description}</span>
             </button>
           ))}
+        </div>
+        <div className="field">
+          <span className="field-label" id="ex-types">
+            Include
+          </span>
+          <div className="export-types" role="group" aria-labelledby="ex-types">
+            {ENTRY_TYPES.map((t) => {
+              const on = types.includes(t);
+              return (
+                <button key={t} type="button" className="set-chip" aria-pressed={on} disabled={on && types.length === 1} title={on && types.length === 1 ? 'Choose at least one' : undefined} onClick={() => toggleType(t)}>
+                  <span className="set-check" aria-hidden="true">
+                    {on && <Check size={12} strokeWidth={3} />}
+                  </span>
+                  <span className="set-label">{TYPE_LABELS[t].many}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
         {/* Both options share one slot, so switching formats never changes the dialog's height. */}
         <div className="export-slot">

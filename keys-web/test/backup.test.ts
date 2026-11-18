@@ -64,3 +64,18 @@ test('version 1 backups (an icon inside each item) still import, and bad icon re
   assert.equal(byTitle.get('Dangling'), '');
   b.store.close();
 });
+
+test('an export can include only some kinds of item', async () => {
+  const a = new Vault(new Store(':memory:'));
+  const key = await a.setup('violet-anchor-tundra-58-quill');
+  a.createEntry(key, sanitizeEntryInput({ type: 'login', title: 'GitHub', password: 'p' }));
+  a.createEntry(key, sanitizeEntryInput({ type: 'apiKey', title: 'Stripe', password: 'sk' }));
+  a.createEntry(key, sanitizeEntryInput({ type: 'note', title: 'Wi-Fi', notes: 'x' }));
+  const file = await exportVault(a, key, 'json', undefined, ['login', 'apiKey']);
+  assert.match(file.filename, /-login-apiKey-UNENCRYPTED\.json$/);
+  const b = new Vault(new Store(':memory:'));
+  const other = await b.setup('violet-anchor-tundra-58-quill');
+  await importVault(b, () => other, file.content);
+  assert.deepEqual(b.listEntries(other).map((e) => e.type).sort(), ['apiKey', 'login']);
+  await assert.rejects(exportVault(a, key, 'csv', undefined, ['recovery']), /no items/);
+});

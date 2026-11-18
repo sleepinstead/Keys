@@ -1,4 +1,5 @@
 import type {
+  EntryType,
   AuditReport,
   BrowserPairing,
   Category,
@@ -149,8 +150,8 @@ export const api = {
   audit: () => request<AuditReport>('GET', '/audit'),
   checkBreaches: () => request<AuditReport>('POST', '/audit/breaches', {}),
 
-  exportVault: (format: ExportFormat, masterPassword: string, exportPassword?: string) =>
-    request<ExportResult>('POST', '/export', { format, masterPassword, exportPassword }),
+  exportVault: (format: ExportFormat, masterPassword: string, exportPassword?: string, types?: EntryType[]) =>
+    request<ExportResult>('POST', '/export', { format, masterPassword, exportPassword, types }),
   importVault: (content: string, password?: string) =>
     request<ImportResult>('POST', '/import', { content, password }),
 };

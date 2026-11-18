@@ -16,7 +16,7 @@ import { checkStrength } from './strength.ts';
 import { HttpError, requireString, sanitizeCategoryName, sanitizeEntryInput } from './validate.ts';
 import { MIN_MASTER_LENGTH } from './vault.ts';
 import type { Vault } from './vault.ts';
-import { CATEGORY_COLORS, isShortCredential, MASTER_PIN_LENGTHS } from '../shared/types.ts';
+import { CATEGORY_COLORS, ENTRY_TYPES, isShortCredential, MASTER_PIN_LENGTHS } from '../shared/types.ts';
 
 import type { Credential, ExportFormat, VaultStatus } from '../shared/types.ts';
 import { readFileSync } from 'node:fs';
@@ -578,7 +578,11 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
         throw new HttpError(400, `Export password must be at least ${MIN_MASTER_LENGTH} characters`);
       }
     }
-    const file = await exportVault(vault, keyFor(req), format, exportPassword);
+    // Which kinds of item to include (all, if not given).
+    const raw: unknown = req.body?.types;
+    const types = raw === undefined ? ENTRY_TYPES : Array.isArray(raw) ? ENTRY_TYPES.filter((t) => raw.includes(t)) : [];
+    if (!types.length) throw new HttpError(400, 'Choose at least one kind of item to export');
+    const file = await exportVault(vault, keyFor(req), format, exportPassword, types);
     if (file.content.length > MAX_BACKUP_CHARS) {
       throw new HttpError(413, 'This vault is too large to back up in one file. Turn off website icons in Settings, then export again.');
     }

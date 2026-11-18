@@ -67,12 +67,12 @@ function iconOf(raw: PortableEntry, icons: unknown): unknown {
   return raw.icon;
 }
 
-function snapshot(vault: Vault, key: Buffer): PortableVault {
+function snapshot(vault: Vault, key: Buffer, types: readonly EntryType[] = ENTRY_TYPES): PortableVault {
   const categories = vault.listCategories(key);
   const names = new Map(categories.map((c) => [c.id, c.name]));
   return {
     categories: categories.map((c) => c.name),
-    entries: vault.listEntries(key).map((e) => ({
+    entries: vault.listEntries(key).filter((e) => types.includes(e.type)).map((e) => ({
       type: e.type,
       title: e.title,
       username: e.username,
@@ -257,10 +257,13 @@ export async function exportVault(
   key: Buffer,
   format: ExportFormat,
   exportPassword?: string,
+  types: readonly EntryType[] = ENTRY_TYPES,
 ): Promise<ExportResult> {
-  const data = snapshot(vault, key);
+  const data = snapshot(vault, key, types);
+  if (!data.entries.length) throw new HttpError(400, 'There are no items of those kinds to export');
   const packed = format === 'csv' ? data : shareIcons(data);
-  const stamp = new Date().toISOString().slice(0, 10);
+  // A partial export says what's in it: keys-2026-11-18-login-apiKey.csv
+  const stamp = new Date().toISOString().slice(0, 10) + (types.length < ENTRY_TYPES.length ? `-${types.join('-')}` : '');
   const createdAt = new Date().toISOString();
 
   if (format === 'encrypted') {
