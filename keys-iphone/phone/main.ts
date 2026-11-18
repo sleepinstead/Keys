@@ -245,16 +245,26 @@ const veil = () => {
   render(); // re-renders every field masked
   root.classList.add('veiled');
 };
-addEventListener('pagehide', veil);
+// Back in front, however that's reported (iOS may send only pageshow, e.g. returning from the
+// back-forward cache or a sign-in page): the lock check runs first, then the screen shows again.
+const reveal = () => {
+  if (!root.classList.contains('veiled') && !hiddenAt) return;
+  if (key && hiddenAt && Date.now() - hiddenAt > HIDDEN_LOCK_MS) lock();
+  hiddenAt = 0;
+  root.classList.remove('veiled');
+  void refresh();
+};
+addEventListener('pagehide', () => {
+  hiddenAt ||= Date.now();
+  veil();
+});
+addEventListener('pageshow', reveal);
+addEventListener('focus', reveal);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    hiddenAt = Date.now();
+    hiddenAt ||= Date.now();
     veil();
-  } else {
-    if (key && hiddenAt && Date.now() - hiddenAt > HIDDEN_LOCK_MS) lock();
-    root.classList.remove('veiled');
-    void refresh();
-  }
+  } else reveal();
 });
 
 // ------------------------------------------------------------------ screens
