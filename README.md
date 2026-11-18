@@ -23,10 +23,9 @@ Each folder is a complete project of its own: `cd` into it and use its npm comma
 | Folder | What it is | Start here |
 | --- | --- | --- |
 | [keys-web](keys-web) | Keys in the browser, served by Node on your computer | `npm run setup`, `npm run build`, `npm start` |
-| [keys-iphone](keys-iphone) | Read-only iPhone web app (opens your file from Google Drive) | `npm install`, `npm run dev` |
 | [keys-extension](keys-extension) | Browser extension for Chrome, Edge, Brave… | load the folder in `chrome://extensions` |
 
-They're separate projects that read the same vault file format.
+The extension has no vault of its own: it asks keys-web, which runs on the same computer.
 
 ## Where your data lives
 
@@ -58,7 +57,7 @@ A login only fills on its own website, and only after you click it. The extensio
 A few things to know:
 
 - **A forgotten master password can't be recovered.** Keep an encrypted export somewhere safe.
-- **A PIN is much weaker than a password.** Anyone with a copy of your file can try every PIN and open it within hours (4 digits) or days (6 digits). Keys warns you when you choose one, and the phone app warns when it opens one.
+- **A PIN is much weaker than a password.** Anyone with a copy of your file can try every PIN and open it within hours (4 digits) or days (6 digits). Keys warns you when you choose one.
 - **Changing the master password or PIN also changes the vault key,** so an old copy of the file and the old password can't open anything saved afterwards.
 - **Keys can't protect you from malware** on your own computer.
 

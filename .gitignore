@@ -1,4 +1,4 @@
-# Keys: what never goes into git. Applies to every folder (keys-web, keys-iphone, keys-extension).
+# Keys: what never goes into git. Applies to every folder (keys-web, keys-extension).
 
 # ---------------------------------------------------------------- dependencies
 node_modules/
@@ -8,13 +8,11 @@ node_modules/
 
 # ---------------------------------------------------------------- build output
 dist/
-dist-phone/
 build/
 out/
 *.tsbuildinfo
 .vite/
 vite.config.ts.timestamp-*
-vite.phone.config.ts.timestamp-*
 
 # Packed browser extension (load the folder unpacked; store builds are made from it)
 keys-extension/*.crx
@@ -39,7 +37,6 @@ yarn-error.log*
 pnpm-debug.log*
 
 # ---------------------------------------------------------------- secrets and local config
-# The phone app's Google client ID lives in keys-iphone/.env.local.
 .env
 .env.*
 !.env.example
