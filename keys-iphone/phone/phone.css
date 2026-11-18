@@ -13,16 +13,17 @@
   --danger-text: #b91c1c;
   color-scheme: light dark;
 }
+/* Dark: the same slate greys as the Keys app. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0a0a0a;
-    --bg-subtle: #111111;
-    --bg-muted: #1a1a1a;
-    --border: #262626;
-    --text: #fafafa;
-    --text-3: #a1a1aa;
-    --primary: #fafafa;
-    --on-primary: #0a0a0a;
+    --bg: #1c1d1f;
+    --bg-subtle: #1f2022;
+    --bg-muted: #232427;
+    --border: #2e3033;
+    --text: #f2f3f4;
+    --text-3: #a5a8ad;
+    --primary: #f2f3f4;
+    --on-primary: #1c1d1f;
     --danger-text: #f87171;
   }
 }
@@ -599,4 +600,52 @@ h2 {
 :focus-visible {
   outline: 2px solid var(--text-3);
   outline-offset: 2px;
+}
+
+/* Pull to refresh: the list's content follows the finger, the spinner waits above it. */
+.scroll {
+  --pull: 0px;
+  --pull-progress: 0;
+  position: relative;
+}
+.scroll > * {
+  transform: translateY(var(--pull));
+}
+.scroll.settling > * {
+  transition: transform 0.35s cubic-bezier(0.2, 0, 0, 1);
+}
+.ptr {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin-left: -13px;
+  color: var(--text-3);
+  opacity: var(--pull-progress);
+}
+.ptr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The ring draws itself as the pull nears the point where letting go refreshes. */
+  stroke-dasharray: calc(var(--pull-progress) * 80) 100;
+  transform: rotate(calc(var(--pull-progress) * 270deg - 90deg));
+}
+.scroll.refreshing .ptr {
+  opacity: 1;
+}
+.scroll.refreshing .ptr svg {
+  stroke-dasharray: 70 100;
+  animation: ptr-spin 0.8s linear infinite;
+}
+@keyframes ptr-spin {
+  to {
+    transform: rotate(270deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll.settling > * {
+    transition-duration: 0.01s;
+  }
 }

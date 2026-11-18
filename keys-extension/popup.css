@@ -39,26 +39,27 @@
   color-scheme: light;
 }
 
+/* Dark: the same slate greys as the Keys app. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0a0a0a;
-    --bg-subtle: #111111;
-    --bg-muted: #1a1a1a;
-    --bg-hover: #1c1c1c;
-    --border: #232323;
-    --border-strong: #303030;
-    --text: #fafafa;
-    --text-2: #d4d4d8;
-    --text-3: #a1a1aa;
-    --text-4: #63636b;
-    --primary: #fafafa;
-    --primary-hover: #e4e4e7;
-    --on-primary: #0a0a0a;
+    --bg: #1c1d1f;
+    --bg-subtle: #1f2022;
+    --bg-muted: #232427;
+    --bg-hover: #2a2b2e;
+    --border: #2e3033;
+    --border-strong: #3a3c40;
+    --text: #f2f3f4;
+    --text-2: #cbced1;
+    --text-3: #a5a8ad;
+    --text-4: #8f9298;
+    --primary: #f2f3f4;
+    --primary-hover: #d5d8da;
+    --on-primary: #1c1d1f;
     --danger-text: #ff8a8a;
     --good: #22c55e;
     --focus: 0 0 0 0 transparent; /* no focus ring */
-    --tooltip-bg: #fafafa;
-    --tooltip-text: #0a0a0a;
+    --tooltip-bg: #f2f3f4;
+    --tooltip-text: #1c1d1f;
     --shadow-lg: 0 24px 56px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
     color-scheme: dark;
   }

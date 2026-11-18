@@ -210,14 +210,14 @@
     .foot svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2;
       stroke-linecap: round; stroke-linejoin: round; margin: 0 9px; }
     @media (prefers-color-scheme: dark) {
-      .menu { color: #fafafa; background: #0a0a0a; border-color: #232323;
+      .menu { color: #f2f3f4; background: #1c1d1f; border-color: #2e3033;
         box-shadow: 0 24px 56px -12px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.04); }
-      button:hover, button:focus-visible { background: #1c1c1c; }
-      button:active { background: #242424; }
+      button:hover, button:focus-visible { background: #2a2b2e; }
+      button:active { background: #313236; }
       
-      .tile { background: #111; border-color: #232323; color: #d4d4d8; }
-      .head, .sub, .foot button { color: #a1a1aa; }
-      .foot { border-color: #232323; }
+      .tile { background: #1f2022; border-color: #2e3033; color: #cbced1; }
+      .head, .sub, .foot button { color: #a5a8ad; }
+      .foot { border-color: #2e3033; }
     }
     @media (prefers-reduced-motion: reduce) { .menu { animation: none; } }`;
 
@@ -535,8 +535,8 @@
     @keyframes draw { to { stroke-dashoffset: 0; } }
     .done small { display: block; color: var(--muted); font-size: 12.5px; font-weight: 400; }
     @media (prefers-color-scheme: dark) {
-      .card { --bg: #0a0a0a; --fg: #fafafa; --muted: #a1a1aa; --line: #262626; --hover: #1c1c1c;
-        --btn-bg: #fafafa; --btn-fg: #0a0a0a; --btn-hover: #e4e4e7; --ring: #a1a1aa; --good: #22c55e; --bad: #f87171;
+      .card { --bg: #1c1d1f; --fg: #f2f3f4; --muted: #a5a8ad; --line: #2e3033; --hover: #2a2b2e;
+        --btn-bg: #f2f3f4; --btn-fg: #1c1d1f; --btn-hover: #d5d8da; --ring: #a5a8ad; --good: #22c55e; --bad: #f87171;
         box-shadow: 0 24px 56px -12px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.04); }
     }
     @media (prefers-reduced-motion: reduce) {

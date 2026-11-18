@@ -109,6 +109,10 @@ async function decrypt() {
 
 /** Asks Drive whether the file changed and downloads it if so. Quiet when offline. */
 async function refresh() {
+  if (copy && copy.source !== 'drive' && pulling) {
+    status = { text: 'Opened from Files: pick the file again to update', action: { label: 'Pick it', run: () => document.getElementById('file-input')?.click() } };
+    return render();
+  }
   if (copy?.source !== 'drive' || !copy.fileId) return;
   if (!drive.signedIn()) {
     status = { text: `Saved copy from ${ago(copy.fetchedAt)}`, action: { label: 'Check for changes', run: drive.signIn } };
@@ -440,14 +444,92 @@ function listBody() {
         h('span', { class: 'item-text' }, h('strong', {}, e.title || 'Untitled'), h('small', {}, e.username || TYPE_LABEL[e.type])),
       ),
     );
-  return h(
+  const list = h(
     'div',
     { class: 'scroll' },
+    h('div', { class: 'ptr', 'aria-hidden': 'true' }, spinner()),
     favs.length > 0 && h('h2', {}, 'Favorites'),
     favs.length > 0 && h('ul', { class: 'list' }, ...favs.map(row)),
     !q && favs.length > 0 && h('h2', {}, 'All items'),
     shown.length ? h('ul', { class: 'list' }, ...shown.map(row)) : h('p', { class: 'muted pad-x' }, q ? 'Nothing matches.' : 'No items yet.'),
   );
+  pullToRefresh(list);
+  return list;
+}
+
+function spinner() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  const arc = document.createElementNS(ns, 'circle');
+  for (const [k, v] of Object.entries({ cx: '12', cy: '12', r: '9', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.5', 'stroke-linecap': 'round', pathLength: '100' })) arc.setAttribute(k, v);
+  svg.append(arc);
+  return svg;
+}
+
+let pulling = false; // a refresh started by pulling is still running
+
+/**
+ * Pull down at the top of the list to check Google Drive for changes. The list follows the finger
+ * 1:1 with growing resistance (it never stops dead), the spinner fills as the pull nears the
+ * point of no return, and letting go past it holds the spinner open until the check finishes.
+ */
+function pullToRefresh(list: HTMLElement) {
+  const THRESHOLD = 64;
+  const HOLD = 48;
+  let startY: number | null = null;
+  let pull = 0;
+  const set = (px: number, settle: boolean) => {
+    pull = px;
+    list.classList.toggle('settling', settle);
+    list.style.setProperty('--pull', `${px}px`);
+    list.style.setProperty('--pull-progress', String(Math.min(1, px / THRESHOLD)));
+  };
+  // Resistance that grows with distance, as at the edge of any iOS scroll view.
+  const rubberband = (d: number) => (d * 0.55 * 400) / (400 + 0.55 * d);
+  list.addEventListener('touchstart', (e) => {
+    startY = list.scrollTop <= 0 && !pulling ? (e.touches[0]?.clientY ?? null) : null;
+  }, { passive: true });
+  list.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    const dy = (e.touches[0]?.clientY ?? startY) - startY;
+    if (dy <= 0 || list.scrollTop > 0) {
+      // Pushed back up past where it started: the list scrolls normally again.
+      if (pull > 0) set(0, false);
+      else startY = null;
+      return;
+    }
+    e.preventDefault(); // the list moves, not the page
+    set(rubberband(dy), false);
+  }, { passive: false });
+  const end = async () => {
+    if (startY === null) return;
+    startY = null;
+    if (pull < THRESHOLD) return set(0, true);
+    pulling = true;
+    set(HOLD, true);
+    list.classList.add('refreshing');
+    const started = Date.now();
+    try {
+      await refresh();
+    } finally {
+      // Long enough to read as "checked", even when Drive answers at once.
+      await new Promise((r) => setTimeout(r, Math.max(0, 500 - (Date.now() - started))));
+      pulling = false;
+      // The check redraws the screen: the new list starts where the old one was held, then settles.
+      const now = root.querySelector<HTMLElement>('.scroll');
+      if (now) {
+        now.style.setProperty('--pull', `${HOLD}px`);
+        now.style.setProperty('--pull-progress', '1');
+        void now.offsetHeight;
+        now.classList.add('settling');
+        now.style.setProperty('--pull', '0px');
+        now.style.setProperty('--pull-progress', '0');
+      }
+    }
+  };
+  list.addEventListener('touchend', end);
+  list.addEventListener('touchcancel', end);
 }
 
 function listScreen() {
