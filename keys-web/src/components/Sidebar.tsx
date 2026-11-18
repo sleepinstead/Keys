@@ -4,7 +4,7 @@ import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pe
 import { useSettings } from '../context.tsx';
 import type { Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
-import { AppMark, ContextMenu, IconButton, Kbd, Tooltip, FolderIcon, useContextMenu } from './ui.tsx';
+import { ContextMenu, IconButton, Kbd, Tooltip, FolderIcon, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
 import { ColorMenu } from './ColorMenu.tsx';
 
@@ -186,13 +186,6 @@ export function Sidebar({
 
   return (
     <nav className="sidebar" id="main-nav" aria-label="Main" inert={hidden || undefined}>
-      <div className="brand">
-        <span className="brand-mark">
-          <AppMark size="sm" />
-          <span className="wordmark">Keys</span>
-        </span>
-      </div>
-
       {search}
 
       <div className="nav-scroll">

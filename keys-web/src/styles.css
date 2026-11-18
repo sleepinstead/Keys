@@ -5999,16 +5999,6 @@ button.sync-note {
   height: 31px;
 }
 
-/* ------------------------------------------------------- sidebar brand */
-.brand {
-  min-height: 40px;
-}
-.brand-mark {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-}
 /* Rows are as wide as the sidebar, never as wide as their longest label. */
 .nav-list {
   grid-template-columns: minmax(0, 1fr);
