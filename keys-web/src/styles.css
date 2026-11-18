@@ -1,4 +1,4 @@
-/* Keys — monochrome.
+/* Keys — monochrome. Dark theme: cool slate greys (after beautifului.dev/harness).
    Black, white and neutral greys; colour only where it carries meaning
    (destructive red, weak/fair/strong). Thin borders, soft shadows, no gradients. */
 
@@ -60,20 +60,20 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #0a0a0a;
-    --bg-subtle: #111111;
-    --bg-muted: #1a1a1a;
-    --bg-hover: #1c1c1c;
-    --bg-active: #242424;
-    --border: #232323;
-    --border-strong: #303030;
-    --text: #fafafa;
-    --text-2: #d4d4d8;
-    --text-3: #a1a1aa;
-    --text-4: #84848c; /* 4.5:1 on every dark surface */
-    --primary: #fafafa;
-    --primary-hover: #e4e4e7;
-    --on-primary: #0a0a0a;
+    --bg: oklch(23.1% 0.004 264.5);
+    --bg-subtle: oklch(24.3% 0.004 264.5);
+    --bg-muted: oklch(26% 0.006 271.2);
+    --bg-hover: oklch(28.9% 0.006 271.2);
+    --bg-active: oklch(31.8% 0.007 274.7);
+    --border: oklch(30.8% 0.006 258.4);
+    --border-strong: oklch(35.6% 0.007 264.5);
+    --text: oklch(96.4% 0.002 247.8);
+    --text-2: oklch(85% 0.005 255);
+    --text-3: oklch(73.1% 0.008 260.7);
+    --text-4: oklch(66% 0.009 262); /* 4.5:1 on every dark surface */
+    --primary: oklch(96.4% 0.002 247.8);
+    --primary-hover: oklch(88% 0.004 250);
+    --on-primary: oklch(23.1% 0.004 264.5);
     --danger: #d93a40; /* white text on it stays at 4.5:1 */
     --danger-hover: #ef5f63;
     --danger-text: #ff8a8a;
@@ -87,35 +87,34 @@
     --good-soft: #0e2216;
     --good-line: #1c4a2c;
     --focus: 0 0 0 0 transparent;
-  --focus-ring: 0 0 0 1.5px var(--text-3);
     --focus-ring: 0 0 0 1.5px var(--text-3);
-    --overlay: rgba(0, 0, 0, 0.6);
+    --overlay: oklch(12% 0.004 264.5 / 0.6);
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
     --shadow-md: 0 8px 20px -6px rgba(0, 0, 0, 0.6);
     --shadow-lg: 0 24px 56px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --tooltip-bg: #fafafa;
-    --tooltip-text: #0a0a0a;
-    --sk: #1a1a1a;
+    --tooltip-bg: oklch(18.2% 0.004 264.5);
+    --tooltip-text: oklch(96.4% 0.002 247.8);
+    --sk: oklch(26% 0.006 271.2);
     color-scheme: dark;
   }
 }
 
 :root[data-theme='dark'] {
-  --bg: #0a0a0a;
-  --bg-subtle: #111111;
-  --bg-muted: #1a1a1a;
-  --bg-hover: #1c1c1c;
-  --bg-active: #242424;
-  --border: #232323;
-  --border-strong: #303030;
-  --text: #fafafa;
-  --text-2: #d4d4d8;
-  --text-3: #a1a1aa;
-  --text-4: #84848c; /* 4.5:1 on every dark surface */
-  --primary: #fafafa;
-  --primary-hover: #e4e4e7;
-  --on-primary: #0a0a0a;
+  --bg: oklch(23.1% 0.004 264.5);
+  --bg-subtle: oklch(24.3% 0.004 264.5);
+  --bg-muted: oklch(26% 0.006 271.2);
+  --bg-hover: oklch(28.9% 0.006 271.2);
+  --bg-active: oklch(31.8% 0.007 274.7);
+  --border: oklch(30.8% 0.006 258.4);
+  --border-strong: oklch(35.6% 0.007 264.5);
+  --text: oklch(96.4% 0.002 247.8);
+  --text-2: oklch(85% 0.005 255);
+  --text-3: oklch(73.1% 0.008 260.7);
+  --text-4: oklch(66% 0.009 262); /* 4.5:1 on every dark surface */
+  --primary: oklch(96.4% 0.002 247.8);
+  --primary-hover: oklch(88% 0.004 250);
+  --on-primary: oklch(23.1% 0.004 264.5);
   --danger: #d93a40; /* white text on it stays at 4.5:1 */
   --danger-hover: #ef5f63;
   --danger-text: #ff8a8a;
@@ -130,14 +129,14 @@
   --good-line: #1c4a2c;
   --focus: 0 0 0 0 transparent;
   --focus-ring: 0 0 0 1.5px var(--text-3);
-  --overlay: rgba(0, 0, 0, 0.6);
+  --overlay: oklch(12% 0.004 264.5 / 0.6);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 8px 20px -6px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 24px 56px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --tooltip-bg: #fafafa;
-  --tooltip-text: #0a0a0a;
-  --sk: #1a1a1a;
+  --tooltip-bg: oklch(18.2% 0.004 264.5);
+  --tooltip-text: oklch(96.4% 0.002 247.8);
+  --sk: oklch(26% 0.006 271.2);
   color-scheme: dark;
 }
 
@@ -733,11 +732,11 @@ select.input-sm.select,
   transform: translateX(16px);
 }
 :root[data-theme='dark'] .switch[aria-checked='true'] .switch-knob {
-  background: #0a0a0a;
+  background: var(--bg);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .switch[aria-checked='true'] .switch-knob {
-    background: #0a0a0a;
+    background: var(--bg);
   }
 }
 /* Segmented control: grey track, white pill (as in Login / Sign Up). */
@@ -1834,15 +1833,26 @@ svg.dial-layer {
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
-.lock-btn {
+/* Lock: a filled, borderless button across the sidebar's foot. */
+.btn.lock-btn {
   width: 100%;
+  height: 38px;
+  border: 0;
+  border-radius: var(--r-xl);
+  background: var(--bg-active);
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 500;
+}
+.btn.lock-btn:hover {
+  background: var(--border-strong);
 }
 .sidebar-foot .tt-anchor {
   display: flex;
   flex: 1;
 }
-.lock-btn.is-soon {
-  border-color: var(--danger-line);
+.btn.lock-btn.is-soon {
+  background: var(--danger-soft);
   color: var(--danger-text);
 }
 
