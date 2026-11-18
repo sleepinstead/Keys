@@ -5918,9 +5918,6 @@ button.sync-note {
 .version-pill {
   display: inline-block;
   margin-left: 10px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 99px;
   color: var(--text-3);
   font-size: 12px;
   font-weight: 500;
