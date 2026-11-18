@@ -4047,19 +4047,27 @@ svg.dial-layer {
    into as many balanced columns as fit, so nothing stretches to match a
    taller neighbour. */
 .settings-masonry {
-  columns: 2 340px;
-  column-gap: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: repeat(var(--rows, 5), auto);
+  grid-auto-flow: column;
+  gap: 14px;
+  align-items: stretch; /* cards in a row share its height, so their edges line up too */
 }
-@container (min-width: 1240px) {
+@container (max-width: 700px) {
   .settings-masonry {
-    columns: 3 320px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-flow: row;
   }
 }
 .settings-masonry > .bento-card {
   display: flex;
   width: 100%;
-  margin: 0 0 14px;
-  break-inside: avoid;
+  margin: 0;
+  /* One cell each: the wide/narrow/tall spans are for other card grids. */
+  grid-column: auto;
+  grid-row: auto;
 }
 @container (max-width: 860px) {
 }

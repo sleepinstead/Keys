@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import type { DragEvent, FormEvent, ReactNode } from 'react';
+import type { CSSProperties, DragEvent, FormEvent, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Archive, Check, Eye, Globe, EyeOff, FileDown, Folder, FileLock2, FileSpreadsheet, FileUp, Grid3x3, HardDrive, KeyRound, MonitorSmartphone, Palette, Pencil, Plus, Shapes, ShieldCheck, Timer, Trash2, TriangleAlert, X } from 'lucide-react';
 import { api, ApiError, errorMessage, LOCK_EVENT } from '../api.ts';
@@ -139,7 +139,9 @@ export function SettingsView({
       </header>
 
       {/* Tiles flow into balanced columns and are only as tall as their content. */}
-      <div className="settings-masonry">
+      {/* Two columns that fill top to bottom, with as many rows as the left column has cards:
+          cards side by side share a row, so they start (and end) on the same line. */}
+      <div className="settings-masonry" style={{ '--rows': 5 + (vaultStatus && !vaultStatus.storage.isDefault ? 1 : 0) } as CSSProperties}>
       {vaultStatus && <CredentialSection credential={credential} onChanged={refreshStatus} />}
       <Section title="Appearance" icon={<Palette size={17} />} size="narrow">
         <div className="group">
