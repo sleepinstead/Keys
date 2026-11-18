@@ -1,36 +1,107 @@
-# Dependencies and build output (every version folder)
-node_modules
-dist
-dist-phone
+# Keys: what never goes into git. Applies to every folder (keys-web, keys-iphone, keys-extension).
+
+# ---------------------------------------------------------------- dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+.npm/
+
+# ---------------------------------------------------------------- build output
+dist/
+dist-phone/
+build/
+out/
 *.tsbuildinfo
+.vite/
+vite.config.ts.timestamp-*
+vite.phone.config.ts.timestamp-*
+
+# Packed browser extension (load the folder unpacked; store builds are made from it)
+keys-extension/*.crx
+keys-extension/*.zip
+
+# ---------------------------------------------------------------- caches and test output
+.cache/
+.eslintcache
+.stylelintcache
+.prettiercache
+.turbo/
 coverage/
+.nyc_output/
+test-results/
+*.lcov
 
-# The previous single-folder layout, kept locally until it's deleted
-keys-old/
-
-# Local settings, secrets, editors
-.DS_Store
-.claude
-.impeccable/
-.env*
-*.local
-.vscode/
-.idea/
-CLAUDE.md
-AGENTS.md
-*.pem
-*.key
-*.zip
+# ---------------------------------------------------------------- logs
 *.log
 npm-debug.log*
-Thumbs.db
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Vaults
+# ---------------------------------------------------------------- secrets and local config
+# The phone app's Google client ID lives in keys-iphone/.env.local.
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.mobileprovision
+*.keystore
+
+# ---------------------------------------------------------------- vaults and exports
+# A Keys database or backup must never be committed, even an encrypted one.
 *.sqlite
+*.sqlite3
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+*.db
+*.db-journal
+*.merged
+*.keys.json
+keys-*-UNENCRYPTED.*
+.*.open-*.json
+browsers.json
+location.json
+device.json
+
+# ---------------------------------------------------------------- operating systems
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*~
+.directory
+
+# ---------------------------------------------------------------- editors and tools
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+.history/
+.claude/
+.impeccable/
+CLAUDE.md
+AGENTS.md
 .github/
 
-# Local-only tests (keys-iphone/test is tracked: it checks the file format)
-keys-extension/*.crx
+# ---------------------------------------------------------------- archives
+*.zip
+*.tar.gz
+*.tgz
+
+# ---------------------------------------------------------------- local only
+# The previous single-folder layout, kept until it's deleted.
+keys-old/
