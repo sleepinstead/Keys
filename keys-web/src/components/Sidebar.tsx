@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent, ReactNode } from 'react';
-import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Trash2, TriangleAlert } from 'lucide-react';
+import { FileKey2, FolderOpen, KeyRound, Layers, LifeBuoy, Lock, Monitor, Moon, NotebookPen, Pencil, Plus, Search, SlidersHorizontal, ShieldCheck, Sparkles, Star, Sun, Trash2, TriangleAlert } from 'lucide-react';
 import { useSettings } from '../context.tsx';
-import type { Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
+import type { Appearance, Category, CategoryColor, EntrySummary, EntryType, SyncStatus } from '../../shared/types.ts';
 import { modKey, TYPE_LABELS } from '../util.ts';
 import { ContextMenu, IconButton, Kbd, Tooltip, FolderIcon, useContextMenu } from './ui.tsx';
 import type { MenuItem } from './ui.tsx';
@@ -334,8 +334,30 @@ export function Sidebar({
           </p>
         )}
         <LockButton onLock={onLock} expiresAt={expiresAt} idleMs={idleMs} />
+        <ThemeButton />
       </div>
     </nav>
+  );
+}
+
+const THEMES: { value: Appearance; label: string; icon: ReactNode }[] = [
+  { value: 'system', label: 'Match system', icon: <Monitor size={16} /> },
+  { value: 'light', label: 'Light', icon: <Sun size={16} /> },
+  { value: 'dark', label: 'Dark', icon: <Moon size={16} /> },
+];
+
+/** Round button beside Lock: shows the current theme and steps to the next (system → light → dark). */
+function ThemeButton() {
+  const { settings, updateSettings } = useSettings();
+  const i = Math.max(0, THEMES.findIndex((t) => t.value === settings.appearance));
+  const current = THEMES[i]!;
+  const next = THEMES[(i + 1) % THEMES.length]!;
+  return (
+    <Tooltip content={<>Theme: {current.label}<span className="tooltip-sub">Click for {next.label.toLowerCase()}</span></>} side="top">
+      <button type="button" className="theme-cycle" aria-label={`Theme: ${current.label}. Switch to ${next.label}`} onClick={() => void updateSettings({ appearance: next.value }).catch(() => {})}>
+        {current.icon}
+      </button>
+    </Tooltip>
   );
 }
 

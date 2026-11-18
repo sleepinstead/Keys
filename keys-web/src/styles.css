@@ -1849,6 +1849,43 @@ svg.dial-layer {
   display: flex;
   flex: 1;
 }
+/* The theme button beside Lock: a circle of the same height and fill. */
+.sidebar-foot .tt-anchor:has(.theme-cycle) {
+  flex: none;
+}
+.theme-cycle {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-active);
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background-color 0.15s var(--ease),
+    color 0.15s var(--ease),
+    transform 0.22s var(--ease);
+}
+.theme-cycle:hover {
+  background: var(--border-strong);
+  color: var(--text);
+}
+.theme-cycle:active {
+  transform: scale(0.94);
+  transition-duration: 0.15s, 0.15s, 0.08s;
+}
+.theme-cycle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-cycle:active {
+    transform: none;
+  }
+}
 .btn.lock-btn.is-soon {
   background: var(--danger-soft);
   color: var(--danger-text);
