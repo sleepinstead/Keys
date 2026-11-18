@@ -19,7 +19,7 @@ after(() => servers.forEach((s) => (s.proc.kill(), fs.rmSync(s.home, { recursive
 const login = (title: string, password: string, categoryId: string | null = null) => ({ type: 'login', title, username: 'me', password, url: 'github.com', notes: '', codes: '', categoryId, favorite: false, icon: '', customFields: [] });
 
 let nextPort = 5260;
-async function make(credential: string, type: 'password' | 'pin' = 'password') {
+async function make(credential: string) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'keys-phone-'));
   const port = nextPort++;
   const proc = spawn(process.execPath, [server], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), APPDATA: path.join(home, 'AppData', 'Roaming'), KEYS_PORT: String(port) }, stdio: 'ignore' });
@@ -33,7 +33,7 @@ async function make(credential: string, type: 'password' | 'pin' = 'password') {
   };
   for (let i = 0; ; i++) {
     try {
-      token = (await call('POST', '/setup', { password: credential, type })).sessionToken;
+      token = (await call('POST', '/setup', { password: credential })).sessionToken;
       break;
     } catch (e) {
       if (i > 50) throw e;
@@ -59,24 +59,24 @@ test('the phone reader decrypts a vault written by the web server', async () => 
   assert.ok(categories.some((c) => c.id === cat.id && c.name === 'Clients'));
 });
 
-test('the phone reader unlocks PIN vaults and rejects other files', async () => {
-  for (const [cred, type] of [['482913', 'pin']] as const) {
-    const { call, file } = await make(cred, type);
-    await call('POST', '/entries', login('A', 'b'));
-    const locked = readVault(await initSqlJs(), fs.readFileSync(file));
-    assert.equal(locked.credential.type, type);
-    assert.equal((await decryptAll(locked, await unlock(locked, cred))).entries.length, 1);
-  }
-  assert.throws(() => readVault(null as never, new Uint8Array([1, 2, 3])), /isn’t a Keys database/);
-});
-
-test('after a password change only the new one unlocks, and every item still decrypts', async () => {
+test('after a password change only the new one unlocks, every item still decrypts, and the vault key is new', async () => {
   const { call, file } = await make('violet-anchor-tundra-58-quill');
-  await call('POST', '/entries', login('A', 'b'));
-  await call('POST', '/account/change-password', { current: 'violet-anchor-tundra-58-quill', next: 'quarry-lantern-orbit-71', type: 'password' });
-  const locked = readVault(await initSqlJs(), fs.readFileSync(file));
+  const cat = await call('POST', '/categories', { name: 'Clients' });
+  await call('POST', '/entries', login('A', 'b', cat.id));
+  const SQL = await initSqlJs();
+  const before = readVault(SQL, fs.readFileSync(file));
+  const oldKey = await unlock(before, 'violet-anchor-tundra-58-quill');
+
+  await call('POST', '/account/change-password', { current: 'violet-anchor-tundra-58-quill', next: 'quarry-lantern-orbit-71' });
+  await call('POST', '/entries', login('After', 'c'));
+  const locked = readVault(SQL, fs.readFileSync(file));
   await assert.rejects(unlock(locked, 'violet-anchor-tundra-58-quill'), WrongCredential);
-  assert.equal((await decryptAll(locked, await unlock(locked, 'quarry-lantern-orbit-71'))).entries[0]!.password, 'b');
+  const now = await decryptAll(locked, await unlock(locked, 'quarry-lantern-orbit-71'));
+  assert.deepEqual(now.entries.map((e) => [e.title, e.password, e.categoryId]), [['A', 'b', cat.id], ['After', 'c', null]]);
+  assert.ok(now.categories.some((c) => c.name === 'Clients'));
+  // An old copy of the file and the old password give the old key, which opens nothing in the new file.
+  const stale = await decryptAll(locked, oldKey);
+  assert.deepEqual([stale.entries.length, stale.categories.length], [0, 0]);
 });
 
 // Files written directly with keys-web's own modules: shapes the API no longer produces.
@@ -94,7 +94,18 @@ test('older items without an icon, legacy credentials, and files that are not Ke
     store.setMeta('credential', JSON.stringify({ type: 'pattern' }));
     store.close();
 
+    // A PIN-only vault.
+    const pinFile = path.join(dir, 'Pin.sqlite');
+    const pinStore = new Store(pinFile);
+    const pinKey = await new Vault(pinStore).setup('482913', { type: 'pin', length: 6 });
+    pinStore.insert('entries', { id: 'pin-item', blob: encryptJson(pinKey, { ...old, icon: '', customFields: [] }, entryAad('pin-item')), created_at: 1, updated_at: 1 });
+    pinStore.close();
+
     const SQL = await initSqlJs();
+    const pinVault = readVault(SQL, fs.readFileSync(pinFile));
+    assert.deepEqual(pinVault.credential, { type: 'pin', length: 6 });
+    assert.equal((await decryptAll(pinVault, await unlock(pinVault, '482913'))).entries.length, 1);
+
     const locked = readVault(SQL, fs.readFileSync(file));
     assert.deepEqual(locked.credential, { type: 'password' }, 'a pattern vault opens with the password field');
     const [item] = (await decryptAll(locked, await unlock(locked, 'violet-anchor-tundra-58-quill'))).entries;
@@ -107,6 +118,7 @@ test('older items without an icon, legacy credentials, and files that are not Ke
     const newer = new SQL.Database(fs.readFileSync(file));
     newer.run('PRAGMA user_version = 99');
     assert.throws(() => readVault(SQL, newer.export()), /newer version of Keys/);
+    assert.throws(() => readVault(null as never, new Uint8Array([1, 2, 3])), /isn’t a Keys database/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

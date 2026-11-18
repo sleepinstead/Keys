@@ -15,7 +15,7 @@ import {
 import type { GeneratorMode, GeneratorOptions } from '../../shared/generator.ts';
 import { useCopy, useSettings } from '../context.tsx';
 import { fade } from '../motion.ts';
-import { Button, CopyButton, IconButton, Segmented, StrengthMeter, Switch, useStrength } from './ui.tsx';
+import { Button, CopyButton, IconButton, radioKeys, radioTabIndex, Segmented, StrengthMeter, Switch, useStrength } from './ui.tsx';
 
 const SETS: { key: 'lowercase' | 'uppercase' | 'digits' | 'symbols'; label: string; sample: string }[] = [
   { key: 'lowercase', label: 'Lowercase', sample: 'abc' },
@@ -224,13 +224,14 @@ export function Generator({ compact, onUse, onCopied }: { compact?: boolean; onU
             <SliderRow id={`gen-words-${idp}`} label="Words" value={opts.words} min={MIN_WORDS} max={MAX_WORDS} onChange={(v) => set('words', v)} />
             <div className="gen-field">
               <div className="setting-label">Between words</div>
-              <div className="sep-chips" role="radiogroup" aria-label="Word separator">
+              <div className="sep-chips" role="radiogroup" aria-label="Word separator" onKeyDown={radioKeys(SEPARATORS, opts.separator, (v) => set('separator', v))}>
                 {SEPARATORS.map((s) => (
                   <button
                     key={s || 'none'}
                     type="button"
                     role="radio"
                     aria-checked={opts.separator === s}
+                    tabIndex={radioTabIndex(SEPARATORS, opts.separator, s)}
                     aria-label={SEPARATOR_LABELS[s]}
                     title={SEPARATOR_LABELS[s]}
                     className="sep-chip"

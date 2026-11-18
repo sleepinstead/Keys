@@ -5746,6 +5746,9 @@ svg.dial-layer {
   gap: 12px;
   padding: 14px 4px 0;
 }
+.onboard-pin-length + .pin-warning {
+  margin-top: 14px;
+}
 .onboard .lock-form {
   margin-top: 24px;
 }

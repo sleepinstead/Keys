@@ -20,6 +20,8 @@ interface PortableEntry {
   category: string | null;
   favorite: boolean;
   icon?: string;
+  /** Index into the file's `icons` (version 2 files): many items share one website icon. */
+  iconRef?: number;
   customFields: CustomField[];
   createdAt?: number;
   passwordUpdatedAt?: number;
@@ -28,7 +30,41 @@ interface PortableEntry {
 
 interface PortableVault {
   categories: string[];
+  /** Each distinct icon once (version 2 files); entries point here with `iconRef`. */
+  icons?: string[];
   entries: PortableEntry[];
+}
+
+/** Backup files written now. Version 1 files (an icon inside every entry) still import. */
+const BACKUP_VERSION = 2;
+
+/**
+ * A website icon is about 11 KB and several items often share one, so a backup lists each
+ * distinct icon once and items refer to it by position.
+ */
+function shareIcons(data: PortableVault): PortableVault {
+  const icons: string[] = [];
+  const index = new Map<string, number>();
+  const entries = data.entries.map(({ icon, ...e }) => {
+    if (!icon) return e;
+    let ref = index.get(icon);
+    if (ref === undefined) {
+      ref = icons.push(icon) - 1;
+      index.set(icon, ref);
+    }
+    return { ...e, iconRef: ref };
+  });
+  return { categories: data.categories, icons, entries };
+}
+
+/** The icon an imported entry should get, from either file version. */
+function iconOf(raw: PortableEntry, icons: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return undefined;
+  if (Number.isInteger(raw.iconRef) && Array.isArray(icons)) {
+    const icon: unknown = icons[raw.iconRef!];
+    return typeof icon === 'string' ? icon : '';
+  }
+  return raw.icon;
 }
 
 function snapshot(vault: Vault, key: Buffer): PortableVault {
@@ -116,7 +152,7 @@ export function toCsv(rows: string[][]): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }
 
-const COLUMN_ALIASES: Record<keyof Omit<PortableEntry, 'icon' | 'customFields' | 'createdAt' | 'passwordUpdatedAt' | 'history'>, string[]> = {
+const COLUMN_ALIASES: Record<keyof Omit<PortableEntry, 'icon' | 'iconRef' | 'customFields' | 'createdAt' | 'passwordUpdatedAt' | 'history'>, string[]> = {
   type: ['type'],
   title: ['title', 'name', 'account', 'site name', 'item name'],
   url: ['url', 'login_uri', 'website', 'uri', 'web site', 'login url', 'site'],
@@ -223,6 +259,7 @@ export async function exportVault(
   exportPassword?: string,
 ): Promise<ExportResult> {
   const data = snapshot(vault, key);
+  const packed = format === 'csv' ? data : shareIcons(data);
   const stamp = new Date().toISOString().slice(0, 10);
   const createdAt = new Date().toISOString();
 
@@ -231,8 +268,8 @@ export async function exportVault(
     const kdf = newKdfParams();
     const exportKey = await deriveKey(exportPassword, kdf);
     try {
-      const blob = encryptJson(exportKey, data, EXPORT_AAD);
-      const file = { format: 'keys-export', version: 1, createdAt, kdf, data: blob.toString('base64') };
+      const blob = encryptJson(exportKey, packed, EXPORT_AAD);
+      const file = { format: 'keys-export', version: BACKUP_VERSION, createdAt, kdf, data: blob.toString('base64') };
       return { filename: `keys-${stamp}.keys.json`, mime: 'application/json', content: JSON.stringify(file, null, 2) };
     } finally {
       exportKey.fill(0);
@@ -240,7 +277,7 @@ export async function exportVault(
   }
 
   if (format === 'json') {
-    const file = { format: 'keys-plain', version: 1, createdAt, ...data };
+    const file = { format: 'keys-plain', version: BACKUP_VERSION, createdAt, ...packed };
     return { filename: `keys-${stamp}-UNENCRYPTED.json`, mime: 'application/json', content: JSON.stringify(file, null, 2) };
   }
 
@@ -313,6 +350,7 @@ export async function importVault(
   if (!Array.isArray(data.entries)) throw new HttpError(400, 'Import file has no entries');
   if (data.entries.length > 100_000) throw new HttpError(413, 'That file has more than 100,000 items. Split it and import each part.');
   if (Array.isArray(data.categories) && data.categories.length > 1000) throw new HttpError(413, 'That file has more than 1,000 categories');
+  if (Array.isArray(data.icons) && data.icons.length > 100_000) throw new HttpError(413, 'That file has more than 100,000 icons');
 
   const fingerprint = (e: { type: string; title: string; username: string; password: string; url: string }) =>
     JSON.stringify([e.type, e.title.trim(), e.username.trim(), e.password, e.url.trim()]);
@@ -340,7 +378,7 @@ export async function importVault(
     for (const raw of data.entries) {
       let input;
       try {
-        input = sanitizeEntryInput({ ...raw, categoryId: null });
+        input = sanitizeEntryInput({ ...raw, icon: iconOf(raw, data.icons), categoryId: null });
       } catch {
         skipped++;
         continue;

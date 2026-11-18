@@ -347,6 +347,28 @@ export function Switch({ checked, onChange, label, id, disabled }: { checked: bo
   );
 }
 
+// ------------------------------------------------------------ radio groups
+
+/**
+ * Keyboard for a `role="radiogroup"` of `role="radio"` buttons, as the ARIA pattern has it: the
+ * group is one Tab stop (`radioTabIndex`), and arrow keys, Home and End move and choose at once.
+ */
+export function radioKeys<T>(values: readonly T[], value: T, onChange: (v: T) => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    if (e.altKey || e.metaKey || e.ctrlKey || !values.length) return;
+    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Record<string, number>)[e.key];
+    const i = Math.max(0, values.indexOf(value));
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? values.length - 1 : step ? (i + step + values.length) % values.length : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    if (values[next] !== value) onChange(values[next]!);
+    e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+  };
+}
+
+/** Only the chosen radio (or the first, when none is) can be reached with Tab. */
+export const radioTabIndex = <T,>(values: readonly T[], value: T, option: T) => (option === value || (!values.includes(value) && option === values[0]) ? 0 : -1);
+
 /** Tabs-style segmented control; the white pill slides to the chosen option. */
 export function Segmented<T extends string>({
   options,
@@ -364,10 +386,11 @@ export function Segmented<T extends string>({
   block?: boolean;
 }) {
   const id = useId();
+  const values = options.map((o) => o.value);
   return (
-    <div className={`segmented${size ? ` segmented-${size}` : ''}${block ? ' segmented-block' : ''}`} role="radiogroup" aria-label={label}>
+    <div className={`segmented${size ? ` segmented-${size}` : ''}${block ? ' segmented-block' : ''}`} role="radiogroup" aria-label={label} onKeyDown={radioKeys(values, value, onChange)}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" role="radio" aria-checked={value === o.value} tabIndex={radioTabIndex(values, value, o.value)} onClick={() => onChange(o.value)}>
           {value === o.value && <motion.span layoutId={`seg-${id}`} className="segmented-pill" transition={quick} />}
           <span className="segmented-label">{o.label}</span>
         </button>
@@ -383,11 +406,12 @@ export function ThemeToggle({ value, onChange }: { value: Appearance; onChange: 
     { value: 'light', label: 'Light', icon: <Sun size={16} /> },
     { value: 'dark', label: 'Dark', icon: <Moon size={16} /> },
   ];
+  const values = options.map((o) => o.value);
   return (
-    <div className="theme-toggle" role="radiogroup" aria-label="Theme">
+    <div className="theme-toggle" role="radiogroup" aria-label="Theme" onKeyDown={radioKeys(values, value, onChange)}>
       {options.map((o) => (
         <Tooltip key={o.value} content={o.label}>
-          <button type="button" role="radio" aria-checked={value === o.value} aria-label={o.label} onClick={() => onChange(o.value)}>
+          <button type="button" role="radio" aria-checked={value === o.value} aria-label={o.label} tabIndex={radioTabIndex(values, value, o.value)} onClick={() => onChange(o.value)}>
             {value === o.value && <span className="theme-toggle-pill" />}
             <span className="theme-toggle-icon">{o.icon}</span>
           </button>

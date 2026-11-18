@@ -38,11 +38,13 @@ export function createApp(opts: AppOptions) {
   const quick = new QuickUnlock();
 
   // Another computer may replace the whole vault (erase it, or connect a different one) in a shared
-  // folder. Edits made elsewhere are simply picked up, but a different vault means this session's
-  // key no longer fits: lock, so the person unlocks the vault that's actually there now.
-  let vaultId = storage.available ? vault.store.getMeta('created_at') : null;
+  // folder, or change its master password, which also replaces the vault key. Edits made elsewhere
+  // are simply picked up, but a different key means this session's no longer fits: lock, so the
+  // person unlocks with what's actually there now.
+  const fingerprint = () => (storage.available ? `${vault.store.getMeta('created_at')}|${vault.store.getMeta('wrapped_key')}` : null);
+  let vaultId = fingerprint();
   storage.onReload(() => {
-    const now = vault.store.getMeta('created_at');
+    const now = fingerprint();
     if (vaultId !== null && now !== vaultId) {
       sessions.lock();
       quick.disarm();
@@ -50,9 +52,8 @@ export function createApp(opts: AppOptions) {
     vaultId = now;
   });
   // The session belongs to the vault that was open when it started (another may have been connected while locked).
-  const current = () => (storage.available ? vault.store.getMeta('created_at') : null);
-  sessions.onLock(() => (vaultId = current()));
-  sessions.onOpen(() => (vaultId = current()));
+  sessions.onLock(() => (vaultId = fingerprint()));
+  sessions.onOpen(() => (vaultId = fingerprint()));
   const presence = new Presence(() => {
     const where = storage.info();
     return opts.presence && where.available && !where.isDefault ? where.path : null;

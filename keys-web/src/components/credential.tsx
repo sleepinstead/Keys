@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Asterisk, Hash } from 'lucide-react';
+import { Asterisk, Hash, TriangleAlert } from 'lucide-react';
 import type { Credential, CredentialType } from '../../shared/types.ts';
 import { Segmented } from './ui.tsx';
 
@@ -35,6 +35,21 @@ function describe(choice: CredentialChoice): { text: string; strength: string; t
   }
 }
 
+/**
+ * Said wherever someone chooses a PIN-only vault. The PIN can't protect a copied file: every
+ * 4-digit PIN can be tried offline in about an hour, every 6-digit one in a few days.
+ */
+export function PinVaultWarning({ length }: { length: 4 | 6 }) {
+  return (
+    <p className="notice notice-warn pin-warning" role="note">
+      <TriangleAlert size={15} aria-hidden="true" />
+      <span>
+        <strong>A PIN can be cracked if someone copies your file.</strong> Anyone with a copy (from Google Drive, iCloud or a backup) can try every {length}-digit PIN on their own computer and open it within {length === 4 ? 'hours' : 'days'}. Use a master password if you keep anything important here.
+      </span>
+    </p>
+  );
+}
+
 /** Choose how the vault unlocks: a master password, or a 4- or 6-digit PIN. */
 export function CredentialPicker({ value, onChange }: { value: CredentialChoice; onChange: (c: CredentialChoice) => void }) {
   const d = describe(value);
@@ -65,6 +80,7 @@ export function CredentialPicker({ value, onChange }: { value: CredentialChoice;
         </span>
         {d.text}
       </p>
+      {value.type === 'pin' && <PinVaultWarning length={value.pinLength} />}
     </div>
   );
 }

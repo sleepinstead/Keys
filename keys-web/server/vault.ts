@@ -58,7 +58,7 @@ export interface EntryExtras {
  *   master password --Argon2id--> KEK --AES-GCM unwrap--> DEK (random 256-bit vault key)
  *   DEK --AES-GCM--> every entry and category, each bound to its row id via AAD.
  *
- * Changing the master password only re-wraps the DEK.
+ * Changing the password or PIN also replaces the DEK and re-encrypts everything under it.
  */
 export class Vault {
   private readonly source: Store | { readonly store: Store };
@@ -79,7 +79,6 @@ export class Vault {
     return this.store.getMeta('wrapped_key') !== null;
   }
 
-  /** Password or PIN. Not secret; the lock screen needs it to show the right input. */
   /** A master password or a PIN. Files from older versions may say "passphrase" or "pattern": those are text secrets too, so they open with the password field. */
   credential(): Credential {
     const raw = this.store.getMeta('credential');
@@ -189,27 +188,61 @@ export class Vault {
     });
   }
 
-  async changePassword(current: string, next: string, credential: Credential = { type: 'password' }): Promise<void> {
-    await this.oneGuessAtATime(async () => {
-      const dek = await this.unwrap(current);
-      if (!dek) {
+  /**
+   * Sets a new password or PIN and a new vault key. Every entry, category and the quick-unlock PIN
+   * is re-encrypted under the new key in one transaction, so an old copy of the file plus the old
+   * password can't open anything written afterwards. Returns the new key (the caller owns it).
+   */
+  async changePassword(current: string, next: string, credential: Credential = { type: 'password' }): Promise<Buffer> {
+    const store = this.store;
+    return this.oneGuessAtATime(async () => {
+      const oldDek = await this.unwrap(current);
+      if (!oldDek) {
         this.recordFailure();
         throw new HttpError(401, `Current ${({ password: 'master password', pin: 'PIN' } as const)[this.credential().type]} is incorrect`, 'BAD_PASSWORD');
       }
       const kdf = newKdfParams(isShortCredential(credential) ? 'pin' : 'password');
-      const kek = await deriveKey(next, kdf);
+      const dek = crypto.randomBytes(KEY_BYTES);
+      let kek: Buffer | null = null;
       try {
+        kek = await deriveKey(next, kdf);
         const wrapped = encrypt(kek, dek, DEK_AAD);
-        this.store.transaction(() => {
-          this.store.setMeta('kdf', JSON.stringify(kdf));
-          this.store.setMeta('wrapped_key', wrapped.toString('base64'));
-          this.store.setMeta('credential', JSON.stringify(credential));
+        if (this.store !== store) throw new HttpError(409, 'The database changed meanwhile. Nothing was changed.');
+        store.transaction(() => {
+          // Re-read inside the transaction: nothing written meanwhile is left under the old key.
+          for (const table of ['entries', 'categories'] as const) {
+            const aad = table === 'entries' ? entryAad : categoryAad;
+            for (const row of store.all(table)) {
+              let plain: Buffer;
+              try {
+                plain = decrypt(oldDek, row.blob, aad(row.id));
+              } catch (err) {
+                if (!(err instanceof DecryptionError)) throw err;
+                continue; // already unreadable (a damaged row); left exactly as it was
+              }
+              try {
+                store.update(table, row.id, encrypt(dek, plain, aad(row.id)), row.updated_at);
+              } finally {
+                plain.fill(0);
+              }
+            }
+          }
           // A vault opened by a PIN has no use for a second, quick-unlock PIN.
-          if (isShortCredential(credential)) this.store.deleteMeta('pin');
+          const pin = isShortCredential(credential) ? null : this.readPin(oldDek);
+          if (pin) this.savePin(dek, pin);
+          else store.deleteMeta('pin');
+          store.setMeta('kdf', JSON.stringify(kdf));
+          store.setMeta('wrapped_key', wrapped.toString('base64'));
+          store.setMeta('credential', JSON.stringify(credential));
+          this.clearFailures();
         });
-      } finally {
-        kek.fill(0);
+        return dek;
+      } catch (err) {
         dek.fill(0);
+        throw err;
+      } finally {
+        kek?.fill(0);
+        oldDek.fill(0);
       }
     });
   }

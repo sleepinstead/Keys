@@ -337,6 +337,15 @@ function lockScreen() {
     h('p', { class: 'muted' }, copy ? `${copy.name} · ${copy.source === 'drive' ? 'Google Drive' : 'from Files'} · ${ago(copy.fetchedAt)}` : ''),
     form,
     error && h('p', { class: 'error', role: 'alert' }, error),
+    // A PIN can't protect a copied file: every PIN can be tried offline within hours or days.
+    kind.type === 'pin' &&
+      !celebrating &&
+      h(
+        'p',
+        { class: 'note warn', role: 'note' },
+        h('strong', {}, 'This file only has a PIN. '),
+        `Anyone with a copy of it can try every ${kind.length}-digit PIN and open it within ${kind.length === 4 ? 'hours' : 'days'}. Set a master password in Keys on your computer (Settings › Unlock PIN › Change).`,
+      ),
     h('button', { class: 'link', onclick: forgetFile }, 'Use a different file'),
   );
 }

@@ -8,13 +8,13 @@ import { collapse, dialog, fade } from '../motion.ts';
 
 import { generatePassword, isWeakPin } from '../../shared/generator.ts';
 import type { VaultStatus } from '../../shared/types.ts';
-import { CREDENTIAL_NAMES } from './credential.tsx';
+import { CREDENTIAL_NAMES, PinVaultWarning } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
 import { Dial } from './Dial.tsx';
 import { StorageDialog } from './StorageDialog.tsx';
 import type { StorageMode } from './StorageDialog.tsx';
 import type { DialState } from './Dial.tsx';
-import { AppMark, Button, IconButton, OtpInput, Segmented, StrengthMeter, useStrength } from './ui.tsx';
+import { AppMark, Button, IconButton, OtpInput, radioKeys, radioTabIndex, Segmented, StrengthMeter, useStrength } from './ui.tsx';
 
 
 
@@ -546,6 +546,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
 }
 
 const STEPS = ['Welcome', 'Choose how to unlock', 'Create it'];
+const UNLOCK_KINDS = ['password', 'pin'] as const;
 
 /** Three segments: done ones full, the current one filling in. */
 function StepProgress({ step }: { step: number }) {
@@ -712,7 +713,7 @@ function Onboarding({
                   How will you unlock Keys?
                 </h1>
                 <p className="onboard-lede">You’ll use it every time Keys locks. It can’t be recovered if you forget it.</p>
-                <div className="onboard-options" role="radiogroup" aria-label="Unlock with">
+                <div className="onboard-options" role="radiogroup" aria-label="Unlock with" onKeyDown={radioKeys(UNLOCK_KINDS, choice.type, (type) => onChoose({ ...choice, type }))}>
                   {(
                     [
                       { type: 'password', icon: <Asterisk size={18} />, title: 'Password', badge: 'Strongest', tone: 'good', text: '10 or more characters. Best if you keep anything important here.' },
@@ -724,6 +725,7 @@ function Onboarding({
                       type="button"
                       role="radio"
                       aria-checked={choice.type === o.type}
+                      tabIndex={radioTabIndex(UNLOCK_KINDS, choice.type, o.type)}
                       className="onboard-option"
                       onClick={() => onChoose({ ...choice, type: o.type })}
                     >
@@ -755,6 +757,7 @@ function Onboarding({
                           ]}
                         />
                       </div>
+                      <PinVaultWarning length={choice.pinLength} />
                     </motion.div>
                   )}
                 </AnimatePresence>

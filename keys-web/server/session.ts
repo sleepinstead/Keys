@@ -29,6 +29,17 @@ export class SessionManager {
     return this.token;
   }
 
+  /** Swaps in a new vault key (after a password change) and keeps the same session. */
+  rekey(key: Buffer): void {
+    if (!this.key) {
+      key.fill(0);
+      return;
+    }
+    this.key.fill(0);
+    this.key = key;
+    for (const fn of this.openListeners) fn();
+  }
+
   onOpen(fn: () => void): void {
     this.openListeners.add(fn);
   }

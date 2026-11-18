@@ -46,7 +46,7 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
   const api = express.Router();
   const json = express.json({ limit: '1mb' });
   let iconFetches = 0;
-  // Backups carry each item's icon (about 11 KB an item): room for a large vault, and export refuses anything bigger.
+  // Backups carry each distinct website icon once (about 11 KB each): room for a large vault, and export refuses anything bigger.
   const MAX_BACKUP_CHARS = 250_000_000;
   const bigJson = express.json({ limit: '260mb' });
 
@@ -112,7 +112,6 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
       const pin = validatePin(value, MASTER_PIN_LENGTHS);
       return { type: 'pin', length: pin.length as 4 | 6 };
     }
-
     assertStrongMaster(value);
     return { type: 'password' };
   };
@@ -474,15 +473,27 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
     res.json({ settings, expiresAt: sessions.expiresAt() });
   });
 
+  /** Sets a new password or PIN, and with it a new vault key (see Vault.changePassword). */
   api.post('/account/change-password', json, async (req, res) => {
     keyFor(req);
     const current = requireString(req.body?.current, 'Current password', 1024);
     const next = requireString(req.body?.next, 'New password', 1024);
     const credential = checkCredential(next, req.body?.type);
     if (current === next) throw new HttpError(400, 'The new one must be different');
-    await vault.changePassword(current, next, credential);
-    if (isShortCredential(credential)) quick.disarm();
-    res.json({ ok: true, credential });
+    const key = await vault.changePassword(current, next, credential);
+    try {
+      keyFor(req, false); // the session may have locked meanwhile: then the new password is simply needed next time
+    } catch (err) {
+      key.fill(0);
+      quick.disarm();
+      throw err;
+    }
+    // The quick-unlock PIN wrapped the old key: wrap the new one instead.
+    quick.disarm();
+    const pin = vault.readPin(key);
+    if (pin) await quick.arm(key, pin);
+    sessions.rekey(key);
+    res.json({ ok: true, credential: vault.credential(), pin: pinStatus() });
   });
 
   // -------------------------------------------------------------- audit

@@ -58,7 +58,8 @@ A login only fills on its own website, and only after you click it. The extensio
 A few things to know:
 
 - **A forgotten master password can't be recovered.** Keep an encrypted export somewhere safe.
-- **A PIN is much weaker than a password.** Someone with a copy of your file could crack it.
+- **A PIN is much weaker than a password.** Anyone with a copy of your file can try every PIN and open it within hours (4 digits) or days (6 digits). Keys warns you when you choose one, and the phone app warns when it opens one.
+- **Changing the master password or PIN also changes the vault key,** so an old copy of the file and the old password can't open anything saved afterwards.
 - **Keys can't protect you from malware** on your own computer.
 
 ## Privacy

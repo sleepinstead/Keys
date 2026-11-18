@@ -16,7 +16,7 @@ import { StorageDialog } from './StorageDialog.tsx';
 import { ColorMenu } from './ColorMenu.tsx';
 import { Select } from './Select.tsx';
 import type { StorageMode } from './StorageDialog.tsx';
-import { Button, Dialog, Field, IconButton, OtpInput, Segmented, StrengthMeter, Switch, ThemeToggle, useStrength, FolderIcon } from './ui.tsx';
+import { Button, Dialog, Field, IconButton, OtpInput, radioKeys, radioTabIndex, Segmented, StrengthMeter, Switch, ThemeToggle, useStrength, FolderIcon } from './ui.tsx';
 
 type Size = 'wide' | 'narrow' | 'half' | 'full';
 
@@ -1015,6 +1015,7 @@ function CredentialForm({ credential, onChanged, onDone }: { credential: Credent
               <NewPinFields idPrefix="cp-pin" length={choice.pinLength} value={next} again={again} onValue={setNext} onAgain={setAgain} />
             )}
           </motion.div>
+        <p className="field-hint">Keys also makes a new vault key, so an old copy of your file and your old {currentName} can’t open anything you save from now on.</p>
         {error && (
           <p className="form-error" role="alert">
             {error}
@@ -1038,6 +1039,8 @@ const EXPORT_FORMATS: { value: ExportFormat; label: string; description: string;
   { value: 'json', label: 'JSON', description: 'Unencrypted, with every field and note.', icon: <FileDown size={18} /> },
   { value: 'csv', label: 'CSV', description: 'Unencrypted, for browsers and other apps.', icon: <FileSpreadsheet size={18} /> },
 ];
+
+const FORMAT_VALUES = EXPORT_FORMATS.map((f) => f.value);
 
 /** One tile for backups: export and import, each opening its own dialog. */
 /** Browsers whose Keys extension may fill passwords, and connecting a new one. */
@@ -1249,9 +1252,9 @@ function ExportForm({ credential, onDone }: { credential: Credential; onDone: ()
   return (
     <form className="dialog-form" onSubmit={submit}>
       <div className="dialog-body stack export-dialog">
-        <div className="format-grid" role="radiogroup" aria-label="Export format">
+        <div className="format-grid" role="radiogroup" aria-label="Export format" onKeyDown={radioKeys(FORMAT_VALUES, format, setFormat)}>
           {EXPORT_FORMATS.map((f) => (
-            <button key={f.value} type="button" role="radio" aria-checked={format === f.value} className="format-card" onClick={() => setFormat(f.value)}>
+            <button key={f.value} type="button" role="radio" aria-checked={format === f.value} tabIndex={radioTabIndex(FORMAT_VALUES, format, f.value)} className="format-card" onClick={() => setFormat(f.value)}>
               <span className="tile-icon">{f.icon}</span>
               <span className="format-label">{f.label}</span>
               <span className="format-desc">{f.description}</span>

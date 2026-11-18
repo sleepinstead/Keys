@@ -235,16 +235,50 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
   };
   const start = virtual ? Math.max(0, firstAt(viewport.top) - OVERSCAN) : 0;
   const end = virtual ? Math.min(rows.length, firstAt(viewport.top + viewport.height) + OVERSCAN + 1) : rows.length;
-  // Arrow keys can select a row that isn't on the page yet: scroll it into view.
+  /**
+   * The list is one Tab stop: the row with keyboard focus (or the open item, or the first row).
+   * ↑/↓/Home/End move between rows, and open each one unless items are being selected.
+   */
+  const [focusId, setFocusId] = useState<string | null>(null);
+  useEffect(() => setFocusId(selectedId), [selectedId]);
+  const tabStopId = (focusId && entries.some((x) => x.id === focusId) ? focusId : null) ?? (selectedId && entries.some((x) => x.id === selectedId) ? selectedId : null) ?? entries[0]?.id ?? null;
+  /** A row to focus once it's on the page (in a long list it may not be yet). */
+  const pendingFocus = useRef<string | null>(null);
+
+  // Arrow keys can reach a row that isn't on the page yet: scroll it into view.
+  const target = focusId ?? selectedId;
   useEffect(() => {
     const el = scroller.current;
-    if (!virtual || !el || !selectedId) return;
-    const i = rows.findIndex((r) => r.kind === 'entry' && r.e.id === selectedId);
+    if (!virtual || !el || !target) return;
+    const i = rows.findIndex((r) => r.kind === 'entry' && r.e.id === target);
     if (i < 0) return;
     const [top, bottom] = [offsets[i]!, offsets[i + 1]!];
     if (top < el.scrollTop) el.scrollTop = top;
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
-  }, [selectedId, virtual, rows, offsets]);
+  }, [target, virtual, rows, offsets]);
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    const row = scroller.current?.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(id)}"]`);
+    if (row) {
+      pendingFocus.current = null;
+      row.focus({ preventScroll: virtual });
+    }
+  });
+
+  const onListKey = (ev: KeyboardEvent<HTMLUListElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key) || ev.altKey || ev.metaKey || ev.ctrlKey) return;
+    const from = (ev.target as HTMLElement).closest<HTMLElement>('[data-entry-id]')?.dataset.entryId;
+    if (!from || !entries.length) return;
+    ev.preventDefault();
+    const i = entries.findIndex((x) => x.id === from);
+    const next = ev.key === 'Home' ? 0 : ev.key === 'End' ? entries.length - 1 : ev.key === 'ArrowDown' ? Math.min(entries.length - 1, i + 1) : Math.max(0, i - 1);
+    const id = entries[next]!.id;
+    if (id === from) return;
+    pendingFocus.current = id;
+    setFocusId(id);
+    if (!inSelection) onSelect(id);
+  };
 
   // Arrow keys in the filter box move the selection.
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -264,6 +298,9 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
     <button
       type="button"
       className="entry-row"
+      data-entry-id={e.id}
+      tabIndex={e.id === tabStopId ? 0 : -1}
+      onFocus={() => setFocusId(e.id)}
       aria-current={selectedId === e.id ? 'true' : undefined}
       aria-pressed={inSelection ? checked.has(e.id) : undefined}
       data-menu-open={menu?.entry.id === e.id || undefined}
@@ -379,7 +416,7 @@ export const EntryList = forwardRef<HTMLInputElement, Props>(function EntryList(
             </EmptyState>
           )
         ) : (
-          <ul className={`entry-list${virtual ? ' is-virtual' : ''}`}>
+          <ul className={`entry-list${virtual ? ' is-virtual' : ''}`} onKeyDown={onListKey}>
             {virtual && <li aria-hidden="true" style={{ height: offsets[start] }} />}
             {rows.slice(start, end).map((r) =>
               r.kind === 'letter' ? (
