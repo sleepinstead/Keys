@@ -16,6 +16,8 @@ Keys is a password manager that runs on your own computer, in your browser. Your
 - **Feels quick.** Right-click any item for shortcuts, press `⌘K` to search, `N` for a new item and `⌘⇧L` to lock.
 - **Light and dark themes**, or follow your system.
 
+To have Keys running all the time and opening like an app (Mac or Windows), and to connect the browser extension, see [SETUP.md](SETUP.md).
+
 ## Versions
 
 Each folder is a complete project of its own: `cd` into it and use its npm commands.
