@@ -376,10 +376,7 @@ function StorageSection({ storage, credential, onMoved }: { storage: StorageInfo
             ))}
         </span>
         <span className="storage-file-meta">
-          <span className="badge" data-tone={storage.isDefault ? 'muted' : 'good'}>
-            {storage.isDefault ? 'Built-in' : 'Your location'}
-          </span>
-          {formatSize(storage.size)}
+          {storage.isDefault ? 'Built-in' : 'Your location'} · {formatSize(storage.size)}
         </span>
       </div>
       <div className="group">

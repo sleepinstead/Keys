@@ -4241,24 +4241,31 @@ svg.dial-layer {
 
 /* ========================================================= database file */
 .storage-file {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding: 12px 14px;
+  /* One line: the path, then where it is and its size. */
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--bg-subtle);
 }
 .storage-file-path {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* a very long path: the rest is in the tooltip */
+  overflow: hidden;
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .storage-file-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  flex: none;
+  white-space: nowrap;
   color: var(--text-3);
   font-size: 12px;
 }
