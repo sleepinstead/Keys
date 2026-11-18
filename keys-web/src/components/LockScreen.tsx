@@ -8,7 +8,7 @@ import { collapse, dialog, fade } from '../motion.ts';
 
 import { generatePassword, isWeakPin } from '../../shared/generator.ts';
 import type { VaultStatus } from '../../shared/types.ts';
-import { CREDENTIAL_NAMES, PinVaultWarning } from './credential.tsx';
+import { CREDENTIAL_NAMES } from './credential.tsx';
 import type { CredentialChoice } from './credential.tsx';
 import { Dial } from './Dial.tsx';
 import { StorageDialog } from './StorageDialog.tsx';
@@ -717,7 +717,7 @@ function Onboarding({
                   {(
                     [
                       { type: 'password', icon: <Asterisk size={18} />, title: 'Password', badge: 'Strongest', tone: 'good', text: '10 or more characters. Best if you keep anything important here.' },
-                      { type: 'pin', icon: <Hash size={18} />, title: 'PIN', badge: choice.pinLength === 4 && isPin ? 'Weakest' : 'Weaker', tone: choice.pinLength === 4 && isPin ? 'bad' : 'warn', text: 'Quick to type, but easy to crack if someone copies your file.' },
+                      { type: 'pin', icon: <Hash size={18} />, title: 'PIN', badge: choice.pinLength === 4 && isPin ? 'Weakest' : 'Weaker', tone: choice.pinLength === 4 && isPin ? 'bad' : 'warn', text: `Quick to type. Anyone with a copy of your file could guess it within ${choice.pinLength === 4 ? 'hours' : 'days'}.` },
                     ] as const
                   ).map((o) => (
                     <button
@@ -757,7 +757,6 @@ function Onboarding({
                           ]}
                         />
                       </div>
-                      <PinVaultWarning length={choice.pinLength} />
                     </motion.div>
                   )}
                 </AnimatePresence>

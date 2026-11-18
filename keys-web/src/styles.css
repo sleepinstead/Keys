@@ -5746,9 +5746,6 @@ svg.dial-layer {
   gap: 12px;
   padding: 14px 4px 0;
 }
-.onboard-pin-length + .pin-warning {
-  margin-top: 14px;
-}
 .onboard .lock-form {
   margin-top: 24px;
 }
@@ -6031,4 +6028,20 @@ button.sync-note {
     animation-duration: 0.8s !important;
     animation-iteration-count: infinite !important;
   }
+}
+
+/* PIN vaults: a quiet note under the PIN length, not an alarm box. */
+.pin-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0 4px;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.pin-warning svg {
+  flex: none;
+  margin-top: 2.5px;
 }
