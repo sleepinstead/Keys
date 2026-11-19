@@ -1474,6 +1474,7 @@ select.input-sm.select,
   display: none;
 }
 .lock .lock-card {
+  zoom: 1.15;
   border: 0;
   border-radius: 0;
   background: transparent;
