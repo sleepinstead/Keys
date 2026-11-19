@@ -54,6 +54,22 @@ export function App() {
     void refresh();
   }, [refresh]);
 
+  // "Open without a PIN or password" (Settings): skip the lock screen whenever it would show.
+  // If the saved key no longer fits (another file, a new password), the lock screen shows as usual.
+  const [autoFailed, setAutoFailed] = useState(false);
+  const autoOpening = !!status && status.initialized && !status.unlocked && status.autoUnlock && !autoFailed;
+  useEffect(() => {
+    if (!autoOpening) return;
+    let live = true;
+    api
+      .unlockAuto()
+      .then((s) => live && setStatus(s))
+      .catch(() => live && setAutoFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [autoOpening, generation]);
+
   useEffect(() => {
     const onLocked = () => {
       // Every request still in flight comes back "locked" too; only the first one locks the screen,
@@ -97,6 +113,8 @@ export function App() {
         <StorageUnavailable storage={status.storage} onChanged={() => window.dispatchEvent(new Event(LOCK_EVENT))} />
       </motion.div>
     );
+  } else if (autoOpening) {
+    screen = null;
   } else if (!status.unlocked) {
     screen = (
       <motion.div

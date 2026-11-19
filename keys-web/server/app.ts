@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { KeyWipedError } from './crypto.ts';
 import { createApi } from './routes.ts';
+import { AutoUnlock } from './autoUnlock.ts';
 import type { RangeFetcher } from './audit.ts';
 import type { IconFetcher } from './favicon.ts';
 import { apiGuard, loopbackOnly, securityHeaders } from './security.ts';
@@ -36,6 +37,7 @@ export function createApp(opts: AppOptions) {
   const vault = new Vault(storage);
   const sessions = new SessionManager(() => vault.getSettings().autoLockMinutes * 60_000);
   const quick = new QuickUnlock();
+  const auto = new AutoUnlock(opts.dbFile === ':memory:' ? null : undefined);
 
   // Another computer may replace the whole vault (erase it, or connect a different one) in a shared
   // folder, or change its master password, which also replaces the vault key. Edits made elsewhere
@@ -79,7 +81,7 @@ export function createApp(opts: AppOptions) {
     '/api',
     apiGuard(new Set(opts.allowedOrigins)),
     browsers.manage,
-    createApi({ vault, storage, sessions, quick, presence, fetchRange: opts.fetchRange, fetchIcon: opts.fetchIcon }),
+    createApi({ vault, storage, sessions, quick, auto, presence, fetchRange: opts.fetchRange, fetchIcon: opts.fetchIcon }),
   );
 
   if (opts.staticDir && fs.existsSync(path.join(opts.staticDir, 'index.html'))) {

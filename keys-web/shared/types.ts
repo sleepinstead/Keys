@@ -207,6 +207,8 @@ export interface VaultStatus {
   /** PIN quick unlock, when set up. */
   pin: PinStatus | null;
   credential: Credential;
+  /** This computer opens the vault without asking for the PIN or password. */
+  autoUnlock: boolean;
 }
 
 /** What unlocks the vault: a master password, or (weaker, by the owner's choice) a numeric PIN. */

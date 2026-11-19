@@ -15,6 +15,7 @@ import type { QuickUnlock } from './pin.ts';
 import { checkStrength } from './strength.ts';
 import { HttpError, requireString, sanitizeCategoryName, sanitizeEntryInput } from './validate.ts';
 import { MIN_MASTER_LENGTH } from './vault.ts';
+import { AutoUnlock } from './autoUnlock.ts';
 import type { Vault } from './vault.ts';
 import { CATEGORY_COLORS, ENTRY_TYPES, isShortCredential, MASTER_PIN_LENGTHS } from '../shared/types.ts';
 
@@ -36,13 +37,14 @@ interface Deps {
   vault: Vault;
   sessions: SessionManager;
   quick: QuickUnlock;
+  auto: AutoUnlock;
   fetchRange?: RangeFetcher;
   fetchIcon?: IconFetcher;
   storage: Storage;
   presence: Presence;
 }
 
-export function createApi({ vault, storage, sessions, quick, presence, fetchRange, fetchIcon }: Deps): express.Router {
+export function createApi({ vault, storage, sessions, quick, auto, presence, fetchRange, fetchIcon }: Deps): express.Router {
   const api = express.Router();
   const json = express.json({ limit: '1mb' });
   let iconFetches = 0;
@@ -79,6 +81,7 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
         appearance: 'system',
         pin: null,
         credential: { type: 'password' },
+        autoUnlock: false,
       };
     }
     const unlocked = sessions.authorize(tokenOf(req), false) !== null;
@@ -92,8 +95,12 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
       appearance: vault.isInitialized() ? vault.getSettings().appearance : 'system',
       pin: pinStatus(),
       credential: vault.isInitialized() ? vault.credential() : { type: 'password' },
+      autoUnlock: vault.isInitialized() && auto.has(autoId()),
     };
   };
+
+  /** Which saved key belongs to the vault open right now. */
+  const autoId = () => (storage.available ? AutoUnlock.id(storage.info().path, vault.store.getMeta('created_at'), vault.store.getMeta('wrapped_key')) : null);
 
   const pinStatus = () => {
     const length = vault.isInitialized() ? vault.pinLength() : null;
@@ -189,6 +196,7 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
   api.post('/storage/wipe', json, async (req, res) => {
     keyFor(req);
     await requireCurrent(req);
+    auto.remove(autoId());
     vault.store.wipe();
     switched(req, res);
   });
@@ -228,6 +236,33 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
       throw new HttpError(401, `Wrong PIN. ${left} ${left === 1 ? 'try' : 'tries'} left before the master password is needed.`, 'BAD_PIN');
     }
     opened(req, res, key);
+  });
+
+  /** Opens without a PIN or password when this computer was told to (Settings). */
+  api.post('/unlock/auto', (req, res) => {
+    if (!vault.isInitialized()) throw new HttpError(409, 'Setup isn’t finished yet');
+    const key = auto.get(autoId());
+    if (!key) throw new HttpError(401, 'This computer doesn’t open Keys on its own', 'NO_AUTO_UNLOCK');
+    opened(req, res, key);
+  });
+
+  /** Turning it on asks for the PIN or password once, so an unattended open session can't do it. */
+  api.post('/auto-unlock', json, async (req, res) => {
+    keyFor(req);
+    const current = typeof req.body?.current === 'string' ? req.body.current.slice(0, 1024) : '';
+    const name = CREDENTIAL_LABELS[vault.credential().type];
+    if (!current) throw new HttpError(400, `Enter your ${name}`);
+    if (!(await vault.verifyPassword(current))) throw new HttpError(401, `Incorrect ${name}`, 'BAD_PASSWORD');
+    const id = autoId();
+    if (!id) throw new HttpError(409, 'The database isn’t available');
+    auto.save(id, keyFor(req, false));
+    res.json(status(req));
+  });
+
+  api.delete('/auto-unlock', (req, res) => {
+    keyFor(req);
+    auto.remove(autoId());
+    res.json(status(req));
   });
 
   // ---------------------------------------------------------------- PIN
@@ -480,7 +515,14 @@ export function createApi({ vault, storage, sessions, quick, presence, fetchRang
     const next = requireString(req.body?.next, 'New password', 1024);
     const credential = checkCredential(next, req.body?.type);
     if (current === next) throw new HttpError(400, 'The new one must be different');
+    const hadAuto = auto.has(autoId());
+    const before = autoId();
     const key = await vault.changePassword(current, next, credential);
+    if (hadAuto) {
+      auto.remove(before);
+      const after = autoId();
+      if (after) auto.save(after, key);
+    }
     try {
       keyFor(req, false); // the session may have locked meanwhile: then the new password is simply needed next time
     } catch (err) {

@@ -179,6 +179,7 @@ export function SettingsView({
 
       <Section title="Locking" icon={<Timer size={17} />} size="wide">
         <div className="group">
+          {vaultStatus && <AutoUnlockRow status={vaultStatus} onChanged={setVaultStatus} />}
           <SelectRow
             label="Lock after inactivity"
             value={settings.autoLockMinutes}
@@ -455,6 +456,84 @@ function StorageSection({ storage, credential, onMoved }: { storage: StorageInfo
         }}
       />
     </Section>
+  );
+}
+
+/**
+ * "Open without a PIN or password": this computer keeps the vault key and skips the lock screen.
+ * Turning it on asks for the PIN or password once; turning it off forgets the key.
+ */
+function AutoUnlockRow({ status, onChanged }: { status: VaultStatus; onChanged: (s: VaultStatus) => void }) {
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const credential = status.credential;
+  const name = CREDENTIAL_NAMES[credential.type];
+
+  const close = () => {
+    setAsking(false);
+    setCurrent('');
+    setError(null);
+  };
+  const turnOn = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!current || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onChanged(await api.setAutoUnlock(current));
+      close();
+      toast('Keys now opens on this computer without asking');
+    } catch (err) {
+      setError(errorMessage(err));
+      setCurrent('');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const turnOff = async () => {
+    try {
+      onChanged(await api.removeAutoUnlock());
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+
+  return (
+    <>
+      <div className="setting-row">
+        <div>
+          <label htmlFor="setting-auto-unlock" className="setting-label">
+            Open without a {name}
+          </label>
+          <div className="setting-desc">Skips the lock screen on this computer. Anyone using it can see your passwords.</div>
+        </div>
+        <Switch id="setting-auto-unlock" checked={status.autoUnlock} onChange={(v) => (v ? setAsking(true) : void turnOff())} label={`Open without a ${name}`} />
+      </div>
+      <Dialog
+        open={asking}
+        onClose={close}
+        size="sm"
+        title={`Open without a ${name}?`}
+        description={`Keys will open on this computer without asking. Copies of the database elsewhere still need your ${name}.`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={close}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={busy} disabled={!current} onClick={() => void turnOn()}>
+              Turn on
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={turnOn}>
+          <CredentialField credential={credential} id="auto-unlock-current" label={`Your ${name}`} value={current} onChange={setCurrent} hint={error ?? undefined} />
+        </form>
+      </Dialog>
+    </>
   );
 }
 
