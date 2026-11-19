@@ -1108,7 +1108,7 @@ export function OtpInput({
           ))}
           {capW > 0.5 && (
             <span
-              className="otp-cell otp-cap"
+              className="otp-cell"
               style={{
                 width: capW,
                 borderRadius: OTP_H / 2,
