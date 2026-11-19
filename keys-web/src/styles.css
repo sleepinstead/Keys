@@ -1157,6 +1157,36 @@ select.input-sm.select,
 .otp[data-phase='no'] .otp-digit {
   color: var(--danger);
 }
+/* a wrong code flushes the cells red, then they fade back as the row empties */
+.otp-cell {
+  transition: background-color 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.otp[data-phase='no'] .otp-cell {
+  background: color-mix(in srgb, var(--danger) 26%, var(--otp-fill));
+  transition-duration: 0.12s;
+}
+/* a right code: the cells and the capsule they fuse into turn green */
+/* the capsule itself never turns green: only the cells, while they travel */
+.otp[data-phase='ok'] .otp-cell:not(.otp-cap) {
+  animation: otp-good 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* green only while the cells pull together, then the capsule settles to its usual fill */
+@keyframes otp-good {
+  0% {
+    background: var(--otp-fill);
+  }
+  30%,
+  55% {
+    background: color-mix(in srgb, var(--good) 12%, var(--otp-fill));
+  }
+  100% {
+    background: var(--otp-fill);
+  }
+}
+.otp[data-phase='no'][data-drained] .otp-cell {
+  background: var(--otp-fill);
+  transition-duration: 0.45s;
+}
 @keyframes otp-in {
   0% {
     opacity: 0;

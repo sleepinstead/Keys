@@ -1023,8 +1023,11 @@ export function OtpInput({
       setDrained(false);
       const t = window.setTimeout(() => {
         setDrained(true);
+        const t0 = performance.now();
+        for (let i = 0; i < n; i++) popAt.current[i] = t0 + i * 40;
+        wake();
         input.current?.focus();
-      }, still ? 0 : OTP_SHAKE_MS + n * 45 + 160);
+      }, still ? 0 : 200 + n * 40 + 260);
       wake();
       return () => window.clearTimeout(t);
     } else if (was === 'ok') {
@@ -1053,7 +1056,13 @@ export function OtpInput({
   const since = now - shook.current;
   const shaking = phase === 'no' && since < OTP_SHAKE_MS && !still;
   const shake = (i: number) =>
-    shaking ? 5 * Math.exp(-since / 190) * Math.sin((since / 1000) * Math.PI * 2 * 10 + i * 0.55) : 0;
+    shaking ? 8 * Math.exp(-since / 170) * Math.sin((since / 1000) * Math.PI * 2 * 7.5 - i * 0.45) : 0;
+  /* each cell squashes with how hard it is moving, so the shiver reads as jelly, not a slide */
+  const squash = (i: number): [number, number] => {
+    if (!shaking) return [1, 1];
+    const v = Math.abs(8 * Math.exp(-since / 170) * Math.cos((since / 1000) * Math.PI * 2 * 7.5 - i * 0.45)) / 8;
+    return [1 + 0.1 * v, 1 - 0.08 * v];
+  };
   const cellX = (i: number) => mixN(home(i), mid, m) + shake(i);
   const pop = (i: number) => {
     const at = popAt.current[i];
@@ -1077,6 +1086,7 @@ export function OtpInput({
     <div
       className={`otp otp-${size}`}
       data-phase={phase}
+      data-drained={(phase === 'no' && drained) || undefined}
       data-disabled={(disabled && phase === 'type') || undefined}
       onClick={() => input.current?.focus()}
     >
@@ -1092,13 +1102,13 @@ export function OtpInput({
               style={{
                 width: OTP_W,
                 borderRadius: cellR,
-                transform: `translateX(${cellX(i).toFixed(2)}px) scale(${breath(i).toFixed(3)})`,
+                transform: `translateX(${cellX(i).toFixed(2)}px) scale(${(breath(i) * squash(i)[0]).toFixed(3)}, ${(breath(i) * squash(i)[1]).toFixed(3)})`,
               }}
             />
           ))}
           {capW > 0.5 && (
             <span
-              className="otp-cell"
+              className="otp-cell otp-cap"
               style={{
                 width: capW,
                 borderRadius: OTP_H / 2,
@@ -1111,7 +1121,7 @@ export function OtpInput({
         {Array.from({ length: n }, (_, i) => {
           const d = shown[i];
           /* a wrong code drains right to left */
-          const out = phase === 'no' && !still ? smoothN(0, 1, (since - 300 - (n - 1 - i) * 45) / 220) : 0;
+          const out = phase === 'no' && value === '' && !still ? smoothN(0, 1, (since - 200 - (n - 1 - i) * 40) / 240) : 0;
           return (
             <span
               key={i}
@@ -1123,7 +1133,7 @@ export function OtpInput({
                 <span
                   key={masked ? `${i}-dot` : `${i}-${d}`}
                   className={masked ? 'otp-digit otp-dot' : 'otp-digit'}
-                  style={{ translate: `0 ${(out * 8).toFixed(2)}px`, opacity: 1 - out }}
+                  style={{ opacity: 1 - out }}
                 >
                   {masked ? null : d}
                 </span>
