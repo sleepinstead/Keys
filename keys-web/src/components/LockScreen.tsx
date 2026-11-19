@@ -510,7 +510,7 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
         <motion.section ref={card} className="lock-card" role="dialog" aria-modal="true" aria-labelledby="lock-title" aria-describedby="lock-lede" {...dialog}>
           <Dial turns={turns} state={dialState} size={176} />
           <h1 id="lock-title" className="lock-title">
-            Welcome back
+            Keys is locked
           </h1>
           <p id="lock-lede" className="lock-lede">
             {lede}

@@ -1456,6 +1456,17 @@ select.input-sm.select,
 .lock-card .dial {
   margin: 0 0 20px;
 }
+/* The lock screen is the page itself: plain background, no app picture behind it, no card. */
+.lock .lock-backdrop,
+.lock .lock-overlay {
+  display: none;
+}
+.lock .lock-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
 
 .lock-status {
   text-align: center;
