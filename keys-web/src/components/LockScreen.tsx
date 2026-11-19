@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { AnimatePresence, motion, useAnimate } from 'motion/react';
-import { ArrowLeft, ArrowRight, Asterisk, Check, CloudOff, Database, Eye, EyeOff, Grid3x3, Hash, HardDrive, KeyRound, Lock, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Asterisk, Check, CloudOff, Eye, EyeOff, Grid3x3, Hash, HardDrive, KeyRound, Lock, ShieldCheck, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { api, errorMessage, LOCK_EVENT } from '../api.ts';
 import { collapse, dialog, fade } from '../motion.ts';
@@ -178,7 +178,8 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
     setDeclined(true);
     window.setTimeout(() => setDeclined(false), 1200);
     setError(errorMessage(err));
-    void animateCard(card.current, { x: [0, -6, 6, -4, 4, 0] }, { duration: 0.32 });
+    // The PIN row shivers on its own; shaking the card too makes the two fight.
+    if (kind !== 'pin') void animateCard(card.current, { x: [0, -6, 6, -4, 4, 0] }, { duration: 0.32 });
     const s = await api.status().catch(() => null);
     if (s) {
       setLockoutUntil(s.lockoutUntil);
@@ -434,13 +435,21 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
           );
 
   const statusBlock = (
-          <div id="lock-status" className="lock-status" aria-live="polite">
+          <div id="lock-status" className="lock-status" data-quiet={(kind === 'pin' && waitSeconds === 0) || undefined} aria-live="polite">
             <AnimatePresence mode="wait" initial={false}>
-              {verified ? (
+              {verified && kind === 'pin' ? (
+                <p key="ok-pin" className="visually-hidden">
+                  {creating ? 'All set' : 'Unlocked'}
+                </p>
+              ) : verified ? (
                 <motion.p key="ok" className="form-success" {...fade}>
                   <Check size={14} strokeWidth={2.6} />
                   {creating ? 'All set' : 'Unlocked'}
                 </motion.p>
+              ) : error && kind === 'pin' && failed && waitSeconds === 0 ? (
+                <p key="bad-pin" className="visually-hidden">
+                  {error}
+                </p>
               ) : error ? (
                 <motion.p key={`e-${error}`} className="form-error" {...fade}>
                   {error}
@@ -527,17 +536,6 @@ export function LockScreen({ status, onUnlocked }: { status: VaultStatus; onUnlo
             </button>
           )}
 
-          <div className="lock-foot">
-            <span className="lock-foot-item">
-              <ShieldCheck size={13} aria-hidden="true" />
-              AES-256 · Argon2id
-            </span>
-            <button type="button" className="lock-foot-item lock-db" onClick={() => setStorageMode('connect')} title={`${status.storage.path}\nChoose a different database file`}>
-              <Database size={13} aria-hidden="true" />
-              <span className="lock-db-name">{status.storage.path.split(/[\\/]/).pop()}</span>
-              <span className="lock-db-change">Change</span>
-            </button>
-          </div>
           {storageDialog}
         </motion.section>
       </div>

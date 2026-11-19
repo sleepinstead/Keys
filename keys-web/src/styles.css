@@ -698,43 +698,52 @@ select.input-sm.select,
 }
 
 .switch {
+  --sw-thumb: 22px;
+  --sw-off: color-mix(in srgb, var(--text) 9%, var(--bg));
   position: relative;
   flex: none;
-  width: 38px;
-  height: 22px;
+  width: 50px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: var(--border-strong);
-  transition: background-color 0.2s var(--ease);
+  background: var(--sw-off);
+  cursor: pointer;
+  touch-action: none;
+  transition: background 0.42s;
 }
-.switch[aria-checked='true'] {
-  background: var(--primary);
+.switch[data-on='true'] {
+  background: var(--text);
+}
+.switch:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .switch:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+.switch-blobs {
+  position: absolute;
+  inset: 0;
+}
 .switch-knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.2s var(--ease);
+  top: 50%;
+  left: 0;
+  width: var(--sw-thumb);
+  height: var(--sw-thumb);
+  margin-top: calc(var(--sw-thumb) / -2);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 19%, var(--sw-off));
+  transition: background 0.42s;
 }
-.switch[aria-checked='true'] .switch-knob {
-  transform: translateX(16px);
-}
-:root[data-theme='dark'] .switch[aria-checked='true'] .switch-knob {
+.switch[data-on='true'] .switch-knob {
   background: var(--bg);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .switch[aria-checked='true'] .switch-knob {
-    background: var(--bg);
+@media (prefers-reduced-motion: reduce) {
+  .switch-knob {
+    transition-duration: 0.16s;
   }
 }
 /* Segmented control: grey track, white pill (as in Login / Sign Up). */
@@ -1090,34 +1099,117 @@ select.input-sm.select,
 
 /* ============================================================= OTP input */
 
-.otp {
-  --cell-w: 54px;
-  --cell-h: 58px;
-  --gap: 10px;
-  position: relative;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--gap);
-  width: 100%;
-  cursor: text;
+.liq-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
-/* Longer PINs get narrower boxes so all of them fit on one line. */
-.otp[data-length='6'] {
-  --cell-w: 46px;
-  --cell-h: 54px;
-  --gap: 7px;
+.otp {
+  --otp-fill: color-mix(in srgb, var(--text) 7%, var(--bg));
+  position: relative;
+  display: grid;
+  place-items: center;
+  font-family: var(--font);
 }
 .otp-md {
-  --cell-w: 42px;
-  --cell-h: 46px;
-  --gap: 6px;
-  justify-content: flex-start;
+  justify-items: start;
 }
-.otp-input {
+.otp-row {
+  position: relative;
+}
+.otp-goo {
   position: absolute;
   inset: 0;
-  z-index: 1;
+}
+.otp-cell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--otp-fill);
+}
+.otp-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  pointer-events: none;
+}
+.otp-digit {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.16s;
+  animation: otp-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.otp-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.otp[data-phase='no'] .otp-digit {
+  color: var(--danger);
+}
+@keyframes otp-in {
+  0% {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(45%) scale(0.86);
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+.otp-caret {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: 2px;
+  background: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s;
+}
+.otp-caret[data-on='true'] {
+  opacity: 1;
+  animation: otp-breathe 1.1s ease-in-out infinite alternate;
+}
+@keyframes otp-breathe {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+.otp-ok {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  pointer-events: none;
+}
+.otp-field {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   padding: 0;
@@ -1129,154 +1221,19 @@ select.input-sm.select,
   caret-color: transparent;
   cursor: text;
 }
-.otp-slot {
-  display: contents;
-}
-/* Groups 6-digit PINs into halves, like 123 456. */
-.otp-sep {
-  flex: none;
-  width: 4px;
-  height: 4px;
-  margin: 0 calc(8px - var(--gap) / 2);
-  border-radius: 50%;
-  background: var(--border-strong);
-}
-.otp-cell {
-  position: relative;
-  display: grid;
-  place-items: center;
-  flex: 0 1 var(--cell-w);
-  min-width: 0;
-  height: var(--cell-h);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-subtle);
-  transition:
-    border-color 0.18s var(--ease),
-    box-shadow 0.18s var(--ease),
-    background-color 0.18s var(--ease),
-    transform 0.22s var(--ease);
-  animation: otp-in 0.4s var(--ease) backwards;
-  animation-delay: calc(var(--i) * 28ms);
-}
-.otp-md .otp-cell {
-  border-radius: 11px;
-}
-.otp-cell[data-filled] {
-  border-color: var(--border-strong);
-  background: var(--bg);
-}
-.otp-cell[data-current] {
-  border-color: var(--text);
-  background: var(--bg);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 9%, transparent);
-  transform: translateY(-2px);
-}
-.otp[data-invalid] {
-  animation: otp-shake-a 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
-}
-/* Two copies of the same keyframes, so a second failure restarts the shake. */
-.otp[data-invalid][data-shake='1'] {
-  animation-name: otp-shake-b;
-}
-.otp[data-invalid] .otp-cell {
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 5%, var(--bg));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 12%, transparent);
-}
-.otp[data-success] .otp-cell {
-  border-color: var(--good);
-  background: color-mix(in srgb, var(--good) 7%, var(--bg));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 10%, transparent);
-  animation: otp-wave 0.4s var(--ease) backwards;
-  animation-delay: calc(var(--i) * 30ms);
-}
-.otp[data-success] .otp-dot {
-  background: var(--good);
-}
-.otp[data-success] .otp-digit {
-  color: var(--good-text);
+.otp[data-phase='ok'] .otp-field {
+  cursor: default;
 }
 .otp[data-disabled] {
   opacity: 0.5;
+}
+.otp[data-disabled] .otp-field {
   cursor: default;
 }
-.otp-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text);
-}
-.otp-digit {
-  font-family: var(--font);
-  font-size: 22px;
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
-}
-.otp-md .otp-digit {
-  font-size: 18px;
-}
-.otp-caret {
-  width: 1.5px;
-  height: 40%;
-  border-radius: 1px;
-  background: var(--text);
-  animation: caret-blink 1.1s ease-in-out infinite;
-}
-@keyframes caret-blink {
-  0%,
-  45% {
-    opacity: 1;
-  }
-  55%,
-  100% {
-    opacity: 0;
-  }
-}
-@keyframes otp-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.96);
-  }
-}
-@keyframes otp-shake-a {
-  15%,
-  85% {
-    transform: translateX(-2px);
-  }
-  30%,
-  70% {
-    transform: translateX(5px);
-  }
-  45% {
-    transform: translateX(-7px);
-  }
-  60% {
-    transform: translateX(7px);
-  }
-}
-@keyframes otp-shake-b {
-  15%,
-  85% {
-    transform: translateX(-2px);
-  }
-  30%,
-  70% {
-    transform: translateX(5px);
-  }
-  45% {
-    transform: translateX(-7px);
-  }
-  60% {
-    transform: translateX(7px);
-  }
-}
-@keyframes otp-wave {
-  40% {
-    transform: translateY(-2px);
-  }
-  100% {
-    transform: none;
+@media (prefers-reduced-motion: reduce) {
+  .otp-digit,
+  .otp-caret[data-on='true'] {
+    animation: none;
   }
 }
 
@@ -4068,6 +4025,10 @@ svg.dial-layer {
   height: 20px;
   min-height: 0;
   margin-top: 12px;
+}
+.lock-status[data-quiet] {
+  height: 0;
+  margin-top: 0;
 }
 .lock-status > * {
   grid-area: 1 / 1;
