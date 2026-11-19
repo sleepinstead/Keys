@@ -1475,6 +1475,9 @@ select.input-sm.select,
 }
 .lock .lock-card {
   zoom: 1.15;
+  /* sit a little above centre, where the eye lands */
+  position: relative;
+  top: -5vh;
   border: 0;
   border-radius: 0;
   background: transparent;
