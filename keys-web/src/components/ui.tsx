@@ -842,48 +842,11 @@ export function Dialog({
 
 // -------------------------------------------------------------- OTP input
 
-/* Six small cells and a caret. Digits rise into their cells; a right code (success) draws the
-   cells together until a goo filter fuses them into one capsule that says so, and a wrong one
-   (invalid) sends a shiver down the row and drains the digits out. One invisible input sits
-   over the row, so paste, autofill, backspace and screen readers all just work. */
-
-const OTP_W = 36;
-const OTP_H = 44;
-const OTP_G = 7;
-const OTP_CAP = 128;
-const OTP_POP_MS = 260;
-const OTP_SHAKE_MS = 620;
-/* the merge is a spring a little under critical, so the capsule overshoots and settles */
-const OTP_MERGE = (() => {
-  const k = 0.075;
-  const zeta = 0.42;
-  return { k, d: 1 - 2 * zeta * Math.sqrt(k) };
-})();
-const clampN = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-const mixN = (a: number, b: number, t: number) => a + (b - a) * t;
-const smoothN = (a: number, b: number, v: number) => {
-  const u = clampN((v - a) / (b - a), 0, 1);
-  return u * u * (3 - 2 * u);
-};
-
-/** Blur-and-threshold SVG filter; its id is per mount so two instances never collide. */
-function useGoo(blur: number, cut: number) {
-  const id = `goo-${useId().replace(/:/g, '')}`;
-  const goo = (
-    <svg className="liq-defs" aria-hidden="true" focusable="false">
-      <defs>
-        <filter id={id} x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
-          <feGaussianBlur in="SourceGraphic" stdDeviation={blur} result="smear" />
-          <feColorMatrix in="smear" type="matrix" values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${cut} ${-(cut / 2)}`} />
-        </filter>
-      </defs>
-    </svg>
-  );
-  return { url: `url(#${id})`, goo };
-}
-
-type OtpPhase = 'type' | 'check' | 'ok' | 'no';
-
+/**
+ * Numeric one-digit-per-box input, like a verification-code field. One real input sits on
+ * top (transparent) so typing, paste, autofill, backspace and screen readers all just work;
+ * the boxes are a picture of its value. Six-digit codes show as two groups of three.
+ */
 export function OtpInput({
   id,
   length,
@@ -913,277 +876,84 @@ export function OtpInput({
   size?: 'lg' | 'md';
   describedBy?: string;
 }) {
-  const n = length;
-  const r = 12;
-  const rowW = n * OTP_W + (n - 1) * OTP_G;
-  const still = useRef(typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches).current;
   const input = useRef<HTMLInputElement>(null);
-  const [focus, setFocus] = useState(false);
-
-  /* the last full code, kept so a wrong one can drain out after the parent clears it */
-  const lastFull = useRef('');
-  if (value.length === n) lastFull.current = value;
-  const phase: OtpPhase = success ? 'ok' : invalid ? 'no' : value.length === n && disabled ? 'check' : 'type';
-  /* once a wrong code has drained out, the row is empty and ready for another try */
-  const [drained, setDrained] = useState(false);
-  const shown = phase === 'no' && value === '' && !drained ? lastFull.current : value;
-
-  const caret = useRef({ x: OTP_W / 2, v: 0 });
-  const popAt = useRef<number[]>([]);
-  const merge = useRef({ m: 0, v: 0, to: 0 });
-  const shook = useRef(-Infinity);
-  const raf = useRef(0);
-  const [, setTick] = useState(0);
-  /* start the shiver's clock in the same render that turns the row red, so the first
-     frame of a wrong code is not drawn with a stale clock (digits blinking out and back) */
-  const lastPhase = useRef(phase);
-  if (phase !== lastPhase.current) {
-    if (phase === 'no') shook.current = performance.now();
-    lastPhase.current = phase;
-  }
-  const live = useRef({ value, n, phase });
-  live.current = { value, n, phase };
-
-  const wake = useCallback(() => {
-    if (raf.current) return;
-    let prev = 0;
-    const tick = (t: number) => {
-      const dt = prev ? clampN((t - prev) / 16.67, 0, 2.5) : 1;
-      prev = t;
-      let busy = false;
-      const { value: c, n: count, phase: ph } = live.current;
-
-      const target = Math.min(c.length, count - 1) * (OTP_W + OTP_G) + OTP_W / 2;
-      const k = caret.current;
-      if (still) {
-        k.x = target;
-        k.v = 0;
-      } else {
-        k.v += (target - k.x) * 0.2 * dt;
-        k.v *= Math.pow(0.62, dt);
-        k.x += k.v * dt;
-        if (Math.abs(target - k.x) < 0.05 && Math.abs(k.v) < 0.05) {
-          k.x = target;
-          k.v = 0;
-        } else busy = true;
-      }
-
-      const mg = merge.current;
-      if (mg.m !== mg.to || mg.v !== 0) {
-        if (still) {
-          mg.m = mg.to;
-          mg.v = 0;
-        } else {
-          mg.v += (mg.to - mg.m) * OTP_MERGE.k * dt;
-          mg.v *= Math.pow(OTP_MERGE.d, dt);
-          mg.m += mg.v * dt;
-          if (Math.abs(mg.to - mg.m) < 0.0008 && Math.abs(mg.v) < 0.0008) {
-            mg.m = mg.to;
-            mg.v = 0;
-          } else busy = true;
-        }
-      }
-
-      if (t - shook.current < OTP_SHAKE_MS + 200 + count * 45) busy = true;
-      if (ph === 'check' && !still) busy = true;
-      setTick((x) => x + 1);
-      if (popAt.current.some((at) => t - at < OTP_POP_MS)) busy = true;
-      raf.current = busy ? requestAnimationFrame(tick) : 0;
-    };
-    raf.current = requestAnimationFrame(tick);
-  }, [still]);
-
-  useEffect(
-    () => () => {
-      cancelAnimationFrame(raf.current);
-      raf.current = 0;
-    },
-    [],
-  );
-  useEffect(() => {
-    wake();
-  }, [value, n, phase, focus, wake]);
-
+  const [focused, setFocused] = useState(false);
   useEffect(() => {
     if (autoFocus && !disabled) input.current?.focus();
   }, [autoFocus, disabled]);
-
-  /* answers: a right code fuses and blurs, a wrong one shivers, a fused row splits again */
-  const prevPhase = useRef(phase);
+  const groupAt = length === 6 ? 3 : -1;
+  // A new failure replays the shake even if the previous one is still marked invalid.
+  const [shakes, setShakes] = useState(0);
   useEffect(() => {
-    const was = prevPhase.current;
-    prevPhase.current = phase;
-    if (phase === was) return;
-    if (phase === 'ok') {
-      play('perk');
-      merge.current = { ...merge.current, to: 1 };
-      input.current?.blur();
-    } else if (phase === 'no') {
-      play('deny');
-      setDrained(false);
-      const t = window.setTimeout(() => {
-        setDrained(true);
-        const t0 = performance.now();
-        for (let i = 0; i < n; i++) popAt.current[i] = t0 + i * 40;
-        wake();
-        input.current?.focus();
-      }, still ? 0 : 200 + n * 40 + 260);
-      wake();
-      return () => window.clearTimeout(t);
-    } else if (was === 'ok') {
-      play('expand');
-      merge.current = { ...merge.current, to: 0 };
-    }
-    wake();
-  }, [phase, wake]);
-
-  const handle = (raw: string) => {
-    if (success) return;
-    const next = raw.replace(/\D/g, '').slice(0, n);
-    if (!still && next.length > value.length) {
-      const t0 = performance.now();
-      for (let i = value.length; i < next.length; i++) popAt.current[i] = t0 + (i - value.length) * 45;
-    }
-    onChange(next);
-    if (next.length === n) onComplete?.(next);
-  };
-
-  const now = performance.now();
-  const raw = merge.current.m;
-  const m = clampN(raw, 0, 1);
-  const home = (i: number) => i * (OTP_W + OTP_G);
-  const mid = (rowW - OTP_W) / 2;
-  const since = now - shook.current;
-  const shaking = phase === 'no' && since < OTP_SHAKE_MS && !still;
-  const shake = (i: number) =>
-    shaking ? 8 * Math.exp(-since / 170) * Math.sin((since / 1000) * Math.PI * 2 * 7.5 - i * 0.45) : 0;
-  /* each cell squashes with how hard it is moving, so the shiver reads as jelly, not a slide */
-  const squash = (i: number): [number, number] => {
-    if (!shaking) return [1, 1];
-    const v = Math.abs(8 * Math.exp(-since / 170) * Math.cos((since / 1000) * Math.PI * 2 * 7.5 - i * 0.45)) / 8;
-    return [1 + 0.1 * v, 1 - 0.08 * v];
-  };
-  const cellX = (i: number) => mixN(home(i), mid, m) + shake(i);
-  const pop = (i: number) => {
-    const at = popAt.current[i];
-    if (at === undefined) return 1;
-    const u = (now - at) / OTP_POP_MS;
-    return u > 0 && u < 1 ? 1 + 0.04 * Math.sin(Math.PI * u) : 1;
-  };
-  const breath = (i: number) => {
-    if (phase !== 'check' || still) return pop(i);
-    const u = ((now % 900) / 900) * (n + 2) - i;
-    return 1 - 0.07 * (u > 0 && u < 2 ? Math.sin((u / 2) * Math.PI) : 0);
-  };
-  const over = raw - 1;
-  const capW = OTP_CAP * smoothN(0.3, 1, m) * (1 + Math.max(-0.12, over) * 0.9);
-  const capSy = 1 - Math.max(-0.12, over) * 0.55;
-  const cellR = mixN(r, OTP_H / 2, smoothN(0.15, 0.7, m));
-  const typing = focus && (phase === 'type' || (phase === 'no' && drained));
-  const { url, goo } = useGoo(3, 24);
+    if (invalid) setShakes((n) => n + 1);
+  }, [invalid]);
+  // A wrong PIN is checked with the field disabled, which drops focus: take it back for the retry.
+  useEffect(() => {
+    if (invalid && !disabled) input.current?.focus();
+  }, [invalid, disabled]);
 
   return (
-    <div
-      className={`otp otp-${size}`}
-      data-phase={phase}
-      data-drained={(phase === 'no' && drained) || undefined}
-      data-disabled={(disabled && phase === 'type') || undefined}
-      onClick={() => input.current?.focus()}
-    >
+    <div className={`otp otp-${size}`} data-length={length} data-shake={shakes % 2} data-invalid={invalid || undefined} data-success={success || undefined} data-disabled={(disabled && !success) || undefined} onClick={() => input.current?.focus()}>
       <label htmlFor={id} className="visually-hidden">
         {label}
       </label>
-      <div className="otp-row" style={{ width: rowW, height: OTP_H }}>
-        <div className="otp-goo" aria-hidden="true" style={{ filter: still ? undefined : url }}>
-          {Array.from({ length: n }, (_, i) => (
+      <input
+        ref={input}
+        id={id}
+        className="otp-input"
+        type={masked ? 'password' : 'text'}
+        inputMode="numeric"
+        pattern="[0-9]*"
+        autoComplete="off"
+        maxLength={length}
+        value={value}
+        disabled={disabled}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(e) => {
+          const next = e.target.value.replace(/\D/g, '').slice(0, length);
+          onChange(next);
+          if (next.length === length) onComplete?.(next);
+        }}
+        onSelect={(e) => {
+          const el = e.currentTarget;
+          if (el.selectionStart !== el.value.length) el.setSelectionRange(el.value.length, el.value.length);
+        }}
+      />
+      {Array.from({ length }, (_, i) => {
+        const ch = value[i];
+        const current = focused && i === Math.min(value.length, length - 1) && (ch === undefined || value.length === length);
+        return (
+          <span key={i} className="otp-slot">
+            {i === groupAt && <span className="otp-sep" aria-hidden="true" />}
             <span
-              key={i}
               className="otp-cell"
-              style={{
-                width: OTP_W,
-                borderRadius: cellR,
-                transform: `translateX(${cellX(i).toFixed(2)}px) scale(${(breath(i) * squash(i)[0]).toFixed(3)}, ${(breath(i) * squash(i)[1]).toFixed(3)})`,
-              }}
-            />
-          ))}
-          {capW > 0.5 && (
-            <span
-              className="otp-cell"
-              style={{
-                width: capW,
-                borderRadius: OTP_H / 2,
-                transform: `translateX(${((rowW - capW) / 2).toFixed(2)}px) scaleY(${capSy.toFixed(3)})`,
-              }}
-            />
-          )}
-        </div>
-
-        {Array.from({ length: n }, (_, i) => {
-          const d = shown[i];
-          /* a wrong code drains right to left */
-          const out = phase === 'no' && value === '' && !still ? smoothN(0, 1, (since - 200 - (n - 1 - i) * 40) / 240) : 0;
-          return (
-            <span
-              key={i}
-              className="otp-slot"
+              data-filled={ch !== undefined || undefined}
+              data-current={current || undefined}
+              style={{ '--i': i } as CSSProperties}
               aria-hidden="true"
-              style={{ width: OTP_W, transform: `translateX(${cellX(i).toFixed(2)}px)`, opacity: 1 - smoothN(0, 0.45, m) }}
             >
-              {d && (
-                <span
-                  key={masked ? `${i}-dot` : `${i}-${d}`}
-                  className={masked ? 'otp-digit otp-dot' : 'otp-digit'}
-                  style={{ opacity: 1 - out }}
-                >
-                  {masked ? null : d}
-                </span>
-              )}
+              <AnimatePresence initial={false}>
+                {ch !== undefined && (
+                  <motion.span
+                    key={masked ? 'dot' : `d${ch}`}
+                    className={masked ? 'otp-dot' : 'otp-digit'}
+                    initial={{ scale: 0.2, opacity: 0, y: masked ? 0 : 6 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    exit={{ scale: 0.4, opacity: 0, transition: { duration: 0.1 } }}
+                    transition={{ type: 'spring', stiffness: 700, damping: 28, mass: 0.6 }}
+                  >
+                    {masked ? null : ch}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+              {current && ch === undefined && <span className="otp-caret" />}
             </span>
-          );
-        })}
-
-        <i
-          className="otp-caret"
-          aria-hidden="true"
-          data-on={typing && value.length < n && m < 0.08}
-          style={{
-            transform: `translateX(${(caret.current.x - 1).toFixed(2)}px) scaleX(${(1 + Math.min(5, Math.abs(caret.current.v) * 0.9)).toFixed(3)})`,
-          }}
-        />
-
-        <span className="otp-ok" aria-hidden="true" style={{ opacity: smoothN(0.72, 1, m), scale: `${mixN(0.92, 1, smoothN(0.72, 1, m))}` }}>
-          <Check size={14} strokeWidth={2} aria-hidden="true" />
-          Verified
-        </span>
-
-        <input
-          ref={input}
-          id={id}
-          className="otp-field"
-          type={masked ? 'password' : 'text'}
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          data-1p-ignore
-          data-lpignore="true"
-          data-bwignore
-          data-form-type="other"
-          maxLength={n}
-          value={value}
-          disabled={disabled}
-          spellCheck={false}
-          aria-invalid={invalid || undefined}
-          aria-describedby={describedBy}
-          onFocus={() => setFocus(true)}
-          onBlur={() => setFocus(false)}
-          onChange={(e) => handle(e.target.value)}
-          onSelect={(e) => {
-            const el = e.currentTarget;
-            if (el.selectionStart !== el.value.length) el.setSelectionRange(el.value.length, el.value.length);
-          }}
-        />
-      </div>
-      {goo}
+          </span>
+        );
+      })}
     </div>
   );
 }
