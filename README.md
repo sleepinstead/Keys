@@ -2,7 +2,7 @@
 
 Keys is a password manager that runs on your own computer, in your browser. Your passwords are encrypted and kept in one file that you control. There's no account to create and no cloud service in the middle.
 
-![Keys main screen](pictures/main.png)
+![Keys main screen](pictures/web.png)
 
 ## What it does
 
